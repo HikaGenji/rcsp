@@ -29,6 +29,8 @@ of every CSP example ported into rcsp.
 - **file I/O adapters** — `read_parquet`/`read_csv` (pull), `write_parquet`/`write_csv` (output)
 - **adapter managers** — fan one source out to per-key streams
 - **dynamic graphs** — `rcsp.dynamic` spawns per-key sub-graphs at runtime
+- **Kafka adapters** — `rcsp.KafkaAdapterManager` subscribe/publish (with an
+  in-memory broker double for tests)
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),

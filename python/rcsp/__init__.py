@@ -63,6 +63,7 @@ from ._io import (
     ReplayAdapterManager,
     CsvAdapterManager,
 )
+from ._kafka import KafkaAdapterManager, InMemoryKafka
 from . import stats
 from . import _profiler as profiler
 
@@ -120,6 +121,8 @@ __all__ = [
     "AdapterManager",
     "ReplayAdapterManager",
     "CsvAdapterManager",
+    "KafkaAdapterManager",
+    "InMemoryKafka",
     "stats",
     "profiler",
 ]

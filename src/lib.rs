@@ -815,6 +815,10 @@ impl Engine {
     ) -> PyResult<()> {
         let wall_start = std::time::Instant::now();
         let duration_ns = (end_ns - start_ns).max(0) as u128;
+        // Strictly-increasing timestamp for pushed items so a burst arriving at
+        // one wall-clock instant lands in distinct cycles instead of colliding
+        // on the edge (which holds one value per cycle).
+        let mut last_push: i64 = start_ns - 1;
 
         loop {
             let elapsed = wall_start.elapsed().as_nanos();
@@ -832,13 +836,17 @@ impl Engine {
                         }
                     };
                     let val = Value::from_py(&item);
-                    Self::push_sched(timed, payload, seq, now_ns, Sched::Edge(edge, val));
+                    let t = now_ns.max(last_push + 1);
+                    last_push = t;
+                    Self::push_sched(timed, payload, seq, t, Sched::Edge(edge, val));
                 }
             }
 
-            // Fire everything now due.
+            // Fire everything now due (including this iteration's burst, whose
+            // synthetic timestamps may sit just past now_ns).
+            let fire_until = now_ns.max(last_push);
             while let Some(Reverse((t, _))) = timed.peek().copied() {
-                if t > now_ns || t > end_ns {
+                if t > fire_until || t > end_ns {
                     break;
                 }
                 self.process_cycle(py, t, end_ns, timed, payload, seq)?;

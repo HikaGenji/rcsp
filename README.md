@@ -10,7 +10,22 @@ backend (via [PyO3](https://pyo3.rs)). This mirrors CSP's own architecture:
 **Rust drives scheduling; Python expresses the computation.**
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for the full engine model and a
-comparison with CSP.
+comparison with CSP, and [`docs/EXAMPLES.md`](docs/EXAMPLES.md) for the status
+of every CSP example ported into rcsp.
+
+## Features
+
+- `@node` / `@graph`, `ts[T]`, single and named (`Outputs`) outputs
+- `ticked` / `valid`, per-node `state`, `starting`, and user alarms
+- baselib: `const`, `timer`, `sample`, `filter`, `merge`, `count`, `firstN`,
+  `delay`, `split`, `curve`, `print`, plus native arithmetic/comparison on edges
+- **`feedback`** edges for graph cycles (e.g. algo ↔ exchange loops)
+- **`GenericPushAdapter`** for pushing realtime data in from other threads
+- discrete-event **simulation** and wall-clock **realtime** modes, one code path
+
+Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),
+mirroring CSP's category layout (basics, feedback, adapters, the NAND-gate
+computer).
 
 ## Quick start
 

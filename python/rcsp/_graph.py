@@ -22,6 +22,9 @@ class Builder:
 
     def __init__(self):
         self.engine = Engine()
+        # Realtime push adapters to signal at start, and callbacks to run at stop.
+        self.push_adapters = []
+        self.stop_callbacks = []
 
     def new_edge(self):
         return Edge(self, self.engine.new_edge())
@@ -113,3 +116,44 @@ def graph(fn):
     ordinary callables invoked while a :class:`Builder` is active."""
     fn.__rcsp_graph__ = True
     return fn
+
+
+class Feedback:
+    """A feedback edge, letting a graph form a cycle (mirrors ``csp.feedback``).
+
+    ``out()`` gives an edge you can consume *before* its producer exists;
+    ``bind(x)`` later connects ``x`` to it. The fed-back value is delivered in
+    the next engine cycle at the same timestamp — the one-cycle delay that keeps
+    the graph a DAG for ranking while still expressing the loop.
+    """
+
+    def __init__(self, typ=None):
+        self._builder = current_builder()
+        self._edge = self._builder.engine.new_edge()
+        self._bound = False
+
+    def out(self):
+        return Edge(self._builder, self._edge)
+
+    def bind(self, x):
+        if self._bound:
+            raise RuntimeError("feedback already bound")
+        self._bound = True
+        fb_edge = self._edge
+
+        def cb(now_ns, values, ticked_flags, valid_flags):
+            # inputs = [x, fb_edge(as alarm)]; re-inject x onto the feedback
+            # edge with a zero delay → fires next cycle, same timestamp.
+            alarms = []
+            if ticked_flags[0]:
+                alarms.append((0, 0, values[0]))
+            return ([], alarms)
+
+        self._builder.engine.add_python_node(
+            cb, [x.id], [fb_edge], [], "feedback", False
+        )
+
+
+def feedback(typ=None):
+    """Create a :class:`Feedback` edge (see :class:`Feedback`)."""
+    return Feedback(typ)

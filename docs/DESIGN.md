@@ -108,8 +108,20 @@ drop-in replacement. Notable differences:
 * Node bodies use a `contextvar`-driven runtime instead of CSP's AST transform,
   so state/alarms are declared via `rcsp.state(...)` and `@node(alarms=[...])`
   rather than `with csp.state()` / `with csp.alarms()`.
-* Baskets, `csp.struct`, adapter managers, dynamic graphs, and the full
-  `csp.stats`/`csp.math` libraries are out of scope for this clone.
+* `rcsp.feedback` expresses graph cycles. A `bind(x)` installs a hidden node
+  that re-injects `x` onto the feedback edge with a **zero-delay alarm** — the
+  value arrives in the next engine cycle at the same timestamp, so ranking still
+  sees a DAG. This is why `ticked` is tracked per **cycle** (a monotonic
+  counter), not per timestamp: feedback runs several cycles at one instant, and
+  an input that ticked in an earlier cycle must not read as ticked in a later
+  one, or the loop would never settle.
+* `rcsp.GenericPushAdapter` feeds realtime data in from other threads via a
+  thread-safe queue that the engine's realtime loop drains (see
+  `run_realtime` in `src/lib.rs`).
+* Baskets, `csp.struct` (dataclasses stand in — edges already carry arbitrary
+  Python objects), adapter managers, dynamic graphs, graph visualization, and
+  the full `csp.stats`/`csp.math` libraries are out of scope; see
+  [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
 
 ## 5. Why not timely / differential dataflow?
 

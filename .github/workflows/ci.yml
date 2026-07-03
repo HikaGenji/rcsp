@@ -64,5 +64,6 @@ jobs:
           python examples/csp_ports/01_basics/e3_show_graph.py
           python examples/csp_ports/01_basics/e4_trade_pnl.py
           python examples/csp_ports/02_intermediate/e1_feedback.py
+          python examples/csp_ports/02_intermediate/e2_stats.py
           python examples/csp_ports/04_writing_adapters/e2_pullinput.py
           python examples/csp_ports/98_just_for_fun/e1_csp_nand_computer.py

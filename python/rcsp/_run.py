@@ -20,40 +20,63 @@ def run(graph, *args, starttime, endtime=None, realtime=False, **kwargs):
     :class:`~datetime.timedelta` relative to ``starttime``. Returns a dict
     mapping each :func:`add_graph_output` name to a list of ``(datetime, value)``.
     """
+    from ._profiler import _current as _current_profiler
+
     builder = Builder()
     token = _builder.set(builder)
     try:
         graph(*args, **kwargs)
+
+        start_ns = _dt_to_ns(starttime)
+        if endtime is None:
+            end_ns = start_ns
+        elif isinstance(endtime, timedelta):
+            end_ns = start_ns + _to_ns(endtime)
+        else:
+            end_ns = _dt_to_ns(endtime)
+
+        profiler = _current_profiler()
+        # Let realtime push adapters begin producing, then run; always fire
+        # engine-stop callbacks afterwards (e.g. to join driver threads).
+        for adapter in builder.push_adapters:
+            adapter._signal_start()
+        try:
+            if builder.dynamics:
+                if realtime:
+                    raise NotImplementedError("dynamic graphs support simulation only")
+                raw = _run_dynamic(builder, start_ns, end_ns, profiler)
+            else:
+                raw = builder.engine.run(start_ns, end_ns, realtime, profiler is not None)
+                if profiler is not None:
+                    profiler._ingest(builder.engine.profiling_report())
+        finally:
+            for callback in builder.stop_callbacks:
+                try:
+                    callback()
+                except Exception:
+                    pass
     finally:
         _builder.reset(token)
-
-    start_ns = _dt_to_ns(starttime)
-    if endtime is None:
-        end_ns = start_ns
-    elif isinstance(endtime, timedelta):
-        end_ns = start_ns + _to_ns(endtime)
-    else:
-        end_ns = _dt_to_ns(endtime)
-
-    # Let realtime push adapters begin producing, then run; always fire
-    # engine-stop callbacks afterwards (e.g. to join driver threads).
-    from ._profiler import _current as _current_profiler
-
-    profiler = _current_profiler()
-    for adapter in builder.push_adapters:
-        adapter._signal_start()
-    try:
-        raw = builder.engine.run(start_ns, end_ns, realtime, profiler is not None)
-    finally:
-        for callback in builder.stop_callbacks:
-            try:
-                callback()
-            except Exception:
-                pass
-    if profiler is not None:
-        profiler._ingest(builder.engine.profiling_report())
 
     return {
         name: [(_ns_to_dt(t), v) for t, v in rows]
         for name, rows in raw.items()
     }
+
+
+def _run_dynamic(builder, start_ns, end_ns, profiler):
+    """Stepped driver: advance the engine one timestamp at a time, instantiating
+    dynamic sub-graphs between steps (the builder context is active here)."""
+    from ._dynamic import instantiate_pending
+
+    engine = builder.engine
+    engine.begin(start_ns, end_ns, profiler is not None)
+    instantiate_pending(builder)  # any keys already known (rare)
+    while True:
+        t = engine.step()
+        instantiate_pending(builder)
+        if t is None:
+            break
+    if profiler is not None:
+        profiler._ingest(engine.profiling_report())
+    return engine.outputs()

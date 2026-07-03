@@ -71,3 +71,4 @@ jobs:
           python examples/csp_ports/02_intermediate/e3_numpy_stats.py
           python examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py
           python examples/csp_ports/99_developer_tools/e1_profiling.py
+          python examples/csp_ports/06_advanced/e1_dynamic.py

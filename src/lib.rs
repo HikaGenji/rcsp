@@ -161,6 +161,14 @@ pub struct Engine {
     prof_count: Vec<u64>,                   // per-node execution count
     prof_ns: Vec<u128>,                     // per-node cumulative exec time (ns)
     endtime: i64,
+    // Stepped-execution state (for dynamic graphs): the scheduler persists
+    // across step() calls so Python can add sub-graphs between steps.
+    s_timed: BinaryHeap<Reverse<(i64, u64)>>,
+    s_payload: HashMap<u64, Sched>,
+    s_seq: u64,
+    s_end: i64,
+    s_now: i64,
+    s_integrated: usize, // nodes already ranked/wired/seeded
 }
 
 #[pymethods]
@@ -179,7 +187,74 @@ impl Engine {
             prof_count: Vec::new(),
             prof_ns: Vec::new(),
             endtime: 0,
+            s_timed: BinaryHeap::new(),
+            s_payload: HashMap::new(),
+            s_seq: 0,
+            s_end: 0,
+            s_now: 0,
+            s_integrated: 0,
         }
+    }
+
+    /// Begin a stepped run (used for dynamic graphs). Seeds sources and holds
+    /// the scheduler as engine state; drive it with repeated `step()` calls and
+    /// read results with `outputs()`.
+    #[pyo3(signature = (start_ns, end_ns, profile = false))]
+    fn begin(&mut self, start_ns: i64, end_ns: i64, profile: bool) -> PyResult<()> {
+        self.endtime = end_ns;
+        self.cycle = 0;
+        self.profile = profile;
+        let n = self.nodes.len();
+        self.prof_count = vec![0; n];
+        self.prof_ns = vec![0; n];
+        self.finalize()?;
+        self.rebuild_consumers();
+        self.s_timed = BinaryHeap::new();
+        self.s_payload = HashMap::new();
+        self.s_seq = 0;
+        self.s_end = end_ns;
+        self.s_now = start_ns;
+        for v in self.outputs.values_mut() {
+            v.clear();
+        }
+        for nid in 0..n {
+            self.seed_source(nid, start_ns);
+        }
+        self.s_integrated = n;
+        Ok(())
+    }
+
+    /// Advance one timestamp. Returns the processed time, or `None` when done.
+    /// Before advancing, integrates any nodes added since the last step.
+    fn step(&mut self, py: Python<'_>) -> PyResult<Option<i64>> {
+        self.integrate()?;
+
+        let mut timed = std::mem::take(&mut self.s_timed);
+        let mut payload = std::mem::take(&mut self.s_payload);
+        let mut seq = self.s_seq;
+
+        let result = (|engine: &mut Engine| -> PyResult<Option<i64>> {
+            let now = match timed.peek().copied() {
+                Some(Reverse((t, _))) if t <= engine.s_end => t,
+                _ => return Ok(None),
+            };
+            engine.s_now = now;
+            // Drain all cycles at `now` (feedback may add follow-up cycles).
+            while timed.peek().map_or(false, |Reverse((t, _))| *t == now) {
+                engine.process_cycle(py, now, engine.s_end, &mut timed, &mut payload, &mut seq)?;
+            }
+            Ok(Some(now))
+        })(self);
+
+        self.s_timed = timed;
+        self.s_payload = payload;
+        self.s_seq = seq;
+        result
+    }
+
+    /// Return the collected graph outputs from a stepped run.
+    fn outputs(&self, py: Python<'_>) -> PyResult<PyObject> {
+        self.collect_outputs(py)
     }
 
     /// Per-node profiling from the last run: list of
@@ -508,7 +583,74 @@ impl Engine {
             }
         }
 
-        // Marshal graph outputs back to Python.
+        self.collect_outputs(py)
+    }
+}
+
+impl Engine {
+    fn push_node(&mut self, node: Node) -> usize {
+        self.nodes.push(node);
+        self.counters.push(0);
+        self.nodes.len() - 1
+    }
+
+    /// Rebuild the edge→consumers map for the full current node set.
+    fn rebuild_consumers(&mut self) {
+        for c in self.consumers.iter_mut() {
+            c.clear();
+        }
+        for (nid, node) in self.nodes.iter().enumerate() {
+            for &e in &node.inputs {
+                self.consumers[e].push(nid);
+            }
+        }
+    }
+
+    /// Seed a source node's initial work relative to `base` into the stepped
+    /// scheduler (const at `base`, timer at `base+interval`, python-start now).
+    fn seed_source(&mut self, nid: usize, base: i64) {
+        let (kind, edge, iv): (u8, usize, i64) = match &self.nodes[nid].kernel {
+            Kernel::Const { .. } => (0, self.nodes[nid].inputs[0], 0),
+            Kernel::Timer { interval, .. } => (1, self.nodes[nid].inputs[0], *interval),
+            Kernel::Python { run_at_start: true, .. } => (2, 0, 0),
+            _ => (3, 0, 0),
+        };
+        match kind {
+            0 => Self::push_sched(&mut self.s_timed, &mut self.s_payload, &mut self.s_seq,
+                base, Sched::Edge(edge, Value::Bool(true))),
+            1 => {
+                let t = base + iv;
+                if t <= self.s_end {
+                    Self::push_sched(&mut self.s_timed, &mut self.s_payload, &mut self.s_seq,
+                        t, Sched::Edge(edge, Value::Bool(true)));
+                }
+            }
+            2 => Self::push_sched(&mut self.s_timed, &mut self.s_payload, &mut self.s_seq,
+                self.s_now, Sched::Node(nid)),
+            _ => {}
+        }
+    }
+
+    /// Absorb nodes added since the last step: re-rank, re-wire consumers,
+    /// grow scratch vectors, and seed any new source nodes at the frontier.
+    fn integrate(&mut self) -> PyResult<()> {
+        let n = self.nodes.len();
+        if n <= self.s_integrated {
+            return Ok(());
+        }
+        self.finalize()?;
+        self.prof_count.resize(n, 0);
+        self.prof_ns.resize(n, 0);
+        self.rebuild_consumers();
+        for nid in self.s_integrated..n {
+            self.seed_source(nid, self.s_now);
+        }
+        self.s_integrated = n;
+        Ok(())
+    }
+
+    /// Marshal collected graph outputs into `{name: [(time_ns, value), ...]}`.
+    fn collect_outputs(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new_bound(py);
         for (name, rows) in self.outputs.iter() {
             let list = PyList::empty_bound(py);
@@ -519,14 +661,6 @@ impl Engine {
             dict.set_item(name, list)?;
         }
         Ok(dict.into())
-    }
-}
-
-impl Engine {
-    fn push_node(&mut self, node: Node) -> usize {
-        self.nodes.push(node);
-        self.counters.push(0);
-        self.nodes.len() - 1
     }
 
     fn set_producer(&mut self, edge: usize, node_id: usize) {

@@ -50,6 +50,7 @@ from ._baselib import (
     split,
 )
 from ._run import run, add_graph_output
+from ._dynamic import dynamic
 from ._viz import show_graph, graph_to_dot, graph_to_mermaid
 from ._interop import to_polars, to_polars_wide, curve_from_frame
 from ._io import (
@@ -104,6 +105,7 @@ __all__ = [
     "split",
     "run",
     "add_graph_output",
+    "dynamic",
     "show_graph",
     "graph_to_dot",
     "graph_to_mermaid",

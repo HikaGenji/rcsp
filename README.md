@@ -28,6 +28,7 @@ of every CSP example ported into rcsp.
 - **NumPy/Polars interop** — arrays flow through edges; `to_polars` collects results
 - **file I/O adapters** — `read_parquet`/`read_csv` (pull), `write_parquet`/`write_csv` (output)
 - **adapter managers** — fan one source out to per-key streams
+- **dynamic graphs** — `rcsp.dynamic` spawns per-key sub-graphs at runtime
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),

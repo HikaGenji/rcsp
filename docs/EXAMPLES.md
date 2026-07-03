@@ -58,7 +58,7 @@ needs an unimplemented subsystem.
 
 | CSP example | rcsp | Notes |
 |---|---|---|
-| `e1_dynamic.py` — dynamic graphs | ⛔ | needs runtime graph mutation (not implemented) |
+| `e1_dynamic.py` — dynamic graphs | ✅ | [`examples/csp_ports/06_advanced/e1_dynamic.py`](../examples/csp_ports/06_advanced/e1_dynamic.py) |
 | `e2_pandas_extension.py` | ⛔ | needs the pandas extension |
 
 ## 07_end_to_end
@@ -82,8 +82,8 @@ needs an unimplemented subsystem.
 ## Summary
 
 The remaining ⛔ entries are honest gaps: they require network I/O (Kafka /
-websocket brokers), pandas interop, C++ nodes, or runtime graph mutation
-(dynamic graphs). See [`DESIGN.md`](DESIGN.md) for the scope rationale.
+websocket brokers), pandas interop, or a C++ toolchain. See
+[`DESIGN.md`](DESIGN.md) for the scope rationale.
 
 Now available in rcsp:
 
@@ -98,3 +98,5 @@ Now available in rcsp:
   `write_parquet` / `write_csv` (output).
 - Adapter managers: `rcsp.ReplayAdapterManager` / `CsvAdapterManager` fan one
   source out to per-key streams.
+- Dynamic graphs: `rcsp.dynamic(control, factory)` instantiates a sub-graph per
+  new key at runtime (simulation), via the engine's stepped-execution API.

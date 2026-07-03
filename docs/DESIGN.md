@@ -131,6 +131,12 @@ drop-in replacement. Notable differences:
   output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one
   source → per-key streams) build on `curve` and engine-stop callbacks. NumPy
   and Polars are optional (`pip install rcsp[data]`).
+* `rcsp.KafkaAdapterManager` streams from/to Kafka: `subscribe` runs a consumer
+  thread that feeds a `GenericPushAdapter`, `publish` sends each tick via a
+  producer. The client is `kafka-python` (optional, `rcsp[kafka]`); an in-process
+  `InMemoryKafka` double drives tests/demos with no broker. Realtime bursts (many
+  messages at one wall-clock instant) are given strictly-increasing timestamps so
+  they land in distinct cycles rather than colliding on the edge.
 * `rcsp.dynamic(control, factory)` grows the graph at runtime. Runtime mutation
   fights two constraints: the run loop borrows the engine for its whole duration,
   and PyO3 forbids re-entering `engine.add_*` while it's borrowed. The fix is a

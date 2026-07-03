@@ -30,7 +30,7 @@ needs an unimplemented subsystem.
 
 | CSP example | rcsp | Where |
 |---|---|---|
-| `kafka/e1_kafka.py` | ⛔ | needs the Kafka adapter (external broker) |
+| `kafka/e1_kafka.py` | ✅ | [`examples/csp_ports/03_using_adapters/kafka/e1_kafka.py`](../examples/csp_ports/03_using_adapters/kafka/e1_kafka.py) |
 | `parquet/e1_parquet_write_read.py` | ✅ | [`examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py`](../examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py) |
 | `websocket/e1_websocket_client.py` | ⛔ | needs the websocket adapter |
 | `websocket/e2_websocket_output.py` | ⛔ | needs the websocket adapter |
@@ -81,9 +81,9 @@ needs an unimplemented subsystem.
 
 ## Summary
 
-The remaining ⛔ entries are honest gaps: they require network I/O (Kafka /
-websocket brokers), pandas interop, or a C++ toolchain. See
-[`DESIGN.md`](DESIGN.md) for the scope rationale.
+The remaining ⛔ entries are honest gaps: they require a websocket server,
+pandas interop, or a C++ toolchain. See [`DESIGN.md`](DESIGN.md) for the scope
+rationale.
 
 Now available in rcsp:
 
@@ -100,3 +100,5 @@ Now available in rcsp:
   source out to per-key streams.
 - Dynamic graphs: `rcsp.dynamic(control, factory)` instantiates a sub-graph per
   new key at runtime (simulation), via the engine's stepped-execution API.
+- Kafka: `rcsp.KafkaAdapterManager` `subscribe`/`publish` (via `kafka-python`),
+  with an in-process `rcsp.InMemoryKafka` broker double for tests/demos.

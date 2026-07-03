@@ -22,6 +22,8 @@ classifiers = [
 data = ["numpy", "polars"]
 # Graph visualization image rendering also needs the Graphviz `dot` binary.
 viz = ["graphviz"]
+# Kafka input/output adapters (rcsp.KafkaAdapterManager).
+kafka = ["kafka-python"]
 
 [project.urls]
 Homepage = "https://github.com/hikagenji/rcsp"

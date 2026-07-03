@@ -43,7 +43,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y graphviz
 
       - name: Install build & test tooling
-        run: python -m pip install --upgrade pip maturin pytest graphviz numpy polars
+        run: python -m pip install --upgrade pip maturin pytest graphviz numpy polars kafka-python
 
       - name: Build the Rust extension
         run: maturin build --release --out dist
@@ -72,3 +72,4 @@ jobs:
           python examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py
           python examples/csp_ports/99_developer_tools/e1_profiling.py
           python examples/csp_ports/06_advanced/e1_dynamic.py
+          python examples/csp_ports/03_using_adapters/kafka/e1_kafka.py

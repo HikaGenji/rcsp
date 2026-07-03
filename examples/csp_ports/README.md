@@ -15,6 +15,7 @@ organized under the same category folders, rewritten against rcsp's API.
 | `04_writing_adapters/e3_adaptermanager_pullinput.py` | `04_writing_adapters/e3_…` | `ReplayAdapterManager`, per-key streams |
 | `99_developer_tools/e1_profiling.py` | `99_developer_tools/e1_profiling.py` | `profiler.Profiler`, per-node stats |
 | `06_advanced/e1_dynamic.py` | `06_advanced/e1_dynamic.py` | `rcsp.dynamic`, runtime per-key sub-graphs |
+| `03_using_adapters/kafka/e1_kafka.py` | `03_using_adapters/kafka/e1_kafka.py` | `KafkaAdapterManager` subscribe/publish (in-memory broker) |
 | `04_writing_adapters/e1_generic_push_adapter.py` | `04_writing_adapters/e1_generic_push_adapter.py` | realtime `GenericPushAdapter`, threads |
 | `04_writing_adapters/e2_pullinput.py` | `04_writing_adapters/e2_pullinput.py` | pull/replay via `curve` |
 | `98_just_for_fun/e1_csp_nand_computer.py` | `98_just_for_fun/e1_csp_nand_computer.py` | one NAND node → a 16-bit adder |

@@ -39,8 +39,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Graphviz (for show_graph rendering)
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
       - name: Install build & test tooling
-        run: python -m pip install --upgrade pip maturin pytest
+        run: python -m pip install --upgrade pip maturin pytest graphviz
 
       - name: Build the Rust extension
         run: maturin build --release --out dist
@@ -58,6 +61,7 @@ jobs:
           python examples/e3_bid_ask.py
           python -c "import examples.e4_realtime as e; e.main(realtime=False)"
           python examples/csp_ports/01_basics/e2_ticking.py
+          python examples/csp_ports/01_basics/e3_show_graph.py
           python examples/csp_ports/01_basics/e4_trade_pnl.py
           python examples/csp_ports/02_intermediate/e1_feedback.py
           python examples/csp_ports/04_writing_adapters/e2_pullinput.py

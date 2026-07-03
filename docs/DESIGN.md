@@ -118,9 +118,11 @@ drop-in replacement. Notable differences:
 * `rcsp.GenericPushAdapter` feeds realtime data in from other threads via a
   thread-safe queue that the engine's realtime loop drains (see
   `run_realtime` in `src/lib.rs`).
+* `rcsp.show_graph` / `graph_to_dot` / `graph_to_mermaid` render the built graph
+  (via `Engine.topology`); image output uses the Graphviz `dot` binary.
 * Baskets, `csp.struct` (dataclasses stand in — edges already carry arbitrary
-  Python objects), adapter managers, dynamic graphs, graph visualization, and
-  the full `csp.stats`/`csp.math` libraries are out of scope; see
+  Python objects), adapter managers, dynamic graphs, and the full
+  `csp.stats`/`csp.math` libraries are out of scope; see
   [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
 
 ## 5. Why not timely / differential dataflow?

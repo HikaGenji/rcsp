@@ -229,6 +229,19 @@ impl Engine {
     }
 
     fn add_binop(&mut self, op: &str, a: usize, b: usize, out: usize) -> PyResult<usize> {
+        let sym = match op {
+            "add" => "+",
+            "sub" => "-",
+            "mul" => "*",
+            "div" => "/",
+            "gt" => ">",
+            "lt" => "<",
+            "ge" => ">=",
+            "le" => "<=",
+            "eq" => "==",
+            "ne" => "!=",
+            _ => return Err(pyo3::exceptions::PyValueError::new_err(format!("unknown op {op}"))),
+        };
         let op = match op {
             "add" => BinOp::Add,
             "sub" => BinOp::Sub,
@@ -240,11 +253,11 @@ impl Engine {
             "le" => BinOp::Le,
             "eq" => BinOp::Eq,
             "ne" => BinOp::Ne,
-            _ => return Err(pyo3::exceptions::PyValueError::new_err(format!("unknown op {op}"))),
+            _ => unreachable!(),
         };
         self.set_producer(out, self.nodes.len());
         Ok(self.push_node(Node {
-            name: "binop".into(),
+            name: sym.into(),
             inputs: vec![a, b],
             outputs: vec![out],
             alarm_base: 2,
@@ -363,6 +376,38 @@ impl Engine {
             kernel: Kernel::Python { func, run_at_start },
             rank: 0,
         })
+    }
+
+    /// Describe the built graph for visualization. Returns
+    /// `(nodes, producers)` where `nodes` is a list of
+    /// `(id, name, rank, input_edges, output_edges)` and `producers` maps each
+    /// edge id to the node that produces it (edges with no producer — sources,
+    /// timers, alarms, feedback — are omitted).
+    fn topology(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        self.finalize()?;
+        let nodes = PyList::empty_bound(py);
+        for (nid, node) in self.nodes.iter().enumerate() {
+            let inputs = PyList::new_bound(py, node.inputs.iter().copied());
+            let outputs = PyList::new_bound(py, node.outputs.iter().copied());
+            let tup = PyTuple::new_bound(
+                py,
+                &[
+                    nid.into_py(py),
+                    node.name.clone().into_py(py),
+                    node.rank.into_py(py),
+                    inputs.into_py(py),
+                    outputs.into_py(py),
+                ],
+            );
+            nodes.append(tup)?;
+        }
+        let producers = pyo3::types::PyDict::new_bound(py);
+        for (eid, e) in self.edges.iter().enumerate() {
+            if let Some(p) = e.producer {
+                producers.set_item(eid, p)?;
+            }
+        }
+        Ok(PyTuple::new_bound(py, &[nodes.into_py(py), producers.into_py(py)]).into())
     }
 
     /// Run the engine over `[start_ns, end_ns]`. Returns

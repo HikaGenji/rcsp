@@ -6,6 +6,7 @@ organized under the same category folders, rewritten against rcsp's API.
 | Path | Mirrors | Demonstrates |
 |---|---|---|
 | `01_basics/e2_ticking.py` | `01_basics/e2_ticking.py` | ticking series, `curve`, stateful `accum` |
+| `01_basics/e3_show_graph.py` | `01_basics/e3_show_graph.py` | `show_graph` / DOT / Mermaid visualization |
 | `01_basics/e4_trade_pnl.py` | `01_basics/e4_trade_pnl.py` | `split`, structs (dataclasses), VWAP, PnL |
 | `02_intermediate/e1_feedback.py` | `02_intermediate/e1_feedback.py` | `feedback` edges, alarms |
 | `04_writing_adapters/e1_generic_push_adapter.py` | `04_writing_adapters/e1_generic_push_adapter.py` | realtime `GenericPushAdapter`, threads |

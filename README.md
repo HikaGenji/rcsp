@@ -21,6 +21,7 @@ of every CSP example ported into rcsp.
   `delay`, `split`, `curve`, `print`, plus native arithmetic/comparison on edges
 - **`feedback`** edges for graph cycles (e.g. algo ↔ exchange loops)
 - **`GenericPushAdapter`** for pushing realtime data in from other threads
+- **`show_graph`** / `graph_to_dot` / `graph_to_mermaid` graph visualization
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),

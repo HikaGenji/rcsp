@@ -50,6 +50,7 @@ from ._baselib import (
     split,
 )
 from ._run import run, add_graph_output
+from ._viz import show_graph, graph_to_dot, graph_to_mermaid
 
 # csp spells the print adapter ``csp.print``; expose the same name.
 print = print_node
@@ -90,4 +91,7 @@ __all__ = [
     "split",
     "run",
     "add_graph_output",
+    "show_graph",
+    "graph_to_dot",
+    "graph_to_mermaid",
 ]

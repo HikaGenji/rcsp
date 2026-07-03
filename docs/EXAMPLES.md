@@ -13,7 +13,7 @@ needs an unimplemented subsystem.
 |---|---|---|
 | `e1_basic.py` — sum two constants | ✅ | [`examples/e1_basic.py`](../examples/e1_basic.py) |
 | `e2_ticking.py` — accumulate a ticking series | ✅ | [`examples/csp_ports/01_basics/e2_ticking.py`](../examples/csp_ports/01_basics/e2_ticking.py) |
-| `e3_show_graph.py` — visualize the graph | ⛔ | needs graphviz graph rendering (not implemented) |
+| `e3_show_graph.py` — visualize the graph | ✅ | [`examples/csp_ports/01_basics/e3_show_graph.py`](../examples/csp_ports/01_basics/e3_show_graph.py) |
 | `e4_trade_pnl.py` — VWAP + PnL | ✅ | [`examples/csp_ports/01_basics/e4_trade_pnl.py`](../examples/csp_ports/01_basics/e4_trade_pnl.py) |
 | `e5_retail_cart.py` — cart with time-based discounts | 🟡 | covered by trade_pnl's struct + stateful pattern; not separately ported |
 
@@ -83,6 +83,10 @@ needs an unimplemented subsystem.
 
 Everything expressible with rcsp's current feature set is ported. The ⛔
 entries are honest gaps: they require subsystems (stats, NumPy/pandas interop,
-Kafka/Parquet/websocket adapters, adapter managers, dynamic graphs, graph
-visualization, profiling) or a C++ toolchain that rcsp does not provide. See
-[`DESIGN.md`](DESIGN.md) for the scope rationale.
+Kafka/Parquet/websocket adapters, adapter managers, dynamic graphs, profiling)
+or a C++ toolchain that rcsp does not provide. See [`DESIGN.md`](DESIGN.md) for
+the scope rationale.
+
+Graph visualization is available via `rcsp.show_graph` / `rcsp.graph_to_dot` /
+`rcsp.graph_to_mermaid` (image rendering needs the Graphviz `dot` binary; DOT
+and Mermaid text need nothing).

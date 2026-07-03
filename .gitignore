@@ -10,3 +10,7 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+
+# Generated graph images from examples
+bid_ask_graph.*
+*_graph.png

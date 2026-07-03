@@ -1,0 +1,17 @@
+[package]
+name = "rcsp"
+version = "0.1.0"
+edition = "2021"
+description = "Rust event-graph engine backend for rcsp (a CSP clone)"
+license = "Apache-2.0"
+
+[lib]
+name = "_rcsp"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rcsp"
+version = "0.1.0"
+description = "A clone of Point72's CSP (Composable Stream Processing) with a Rust event-graph engine"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [{ name = "rcsp contributors" }]
+keywords = ["stream-processing", "reactive", "dataflow", "rust", "csp"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/hikagenji/rcsp"
+
+[tool.maturin]
+python-source = "python"
+module-name = "rcsp._rcsp"
+features = ["pyo3/extension-module"]

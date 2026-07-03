@@ -3,10 +3,12 @@
 Most of these map straight onto native Rust kernels for speed; ``curve`` is a
 small Python-node adapter that replays a fixed series."""
 
+import collections
 from datetime import datetime, timedelta
 
 from ._graph import Edge, current_builder
-from ._node import _dt_to_ns, _to_ns
+from ._node import _dt_to_ns, _to_ns, node, ticked, valid, output
+from ._types import Outputs, ts
 
 
 def const(value):
@@ -73,6 +75,21 @@ def delay(x, delta):
 def print_node(name, x):
     """Print each tick of ``x`` with a label to stdout."""
     current_builder().engine.add_print(name, x.id)
+
+
+@node
+def _split_node(flag: ts[bool], x: ts[object]) -> Outputs(true=ts[object], false=ts[object]):
+    if ticked(x) and valid(flag):
+        if flag.value:
+            output(true=x.value)
+        else:
+            output(false=x.value)
+
+
+def split(flag, x):
+    """Route ``x`` to ``.true`` or ``.false`` depending on ``flag`` (mirrors
+    ``csp.split``)."""
+    return _split_node(flag, x)
 
 
 def curve(typ, data):

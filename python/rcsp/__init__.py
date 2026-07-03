@@ -22,7 +22,8 @@ Public API mirrors the subset of ``csp`` most graphs use::
 """
 
 from ._types import Outputs, TsType, ts
-from ._graph import Edge, graph
+from ._graph import Edge, graph, feedback, Feedback
+from ._adapters import GenericPushAdapter, schedule_on_engine_stop
 from ._node import (
     node,
     ticked,
@@ -46,6 +47,7 @@ from ._baselib import (
     delay,
     print_node,
     curve,
+    split,
 )
 from ._run import run, add_graph_output
 
@@ -61,6 +63,10 @@ __all__ = [
     "Edge",
     "node",
     "graph",
+    "feedback",
+    "Feedback",
+    "GenericPushAdapter",
+    "schedule_on_engine_stop",
     "ticked",
     "valid",
     "output",
@@ -81,6 +87,7 @@ __all__ = [
     "print",
     "print_node",
     "curve",
+    "split",
     "run",
     "add_graph_output",
 ]

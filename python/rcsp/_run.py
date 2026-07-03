@@ -35,7 +35,19 @@ def run(graph, *args, starttime, endtime=None, realtime=False, **kwargs):
     else:
         end_ns = _dt_to_ns(endtime)
 
-    raw = builder.engine.run(start_ns, end_ns, realtime)
+    # Let realtime push adapters begin producing, then run; always fire
+    # engine-stop callbacks afterwards (e.g. to join driver threads).
+    for adapter in builder.push_adapters:
+        adapter._signal_start()
+    try:
+        raw = builder.engine.run(start_ns, end_ns, realtime)
+    finally:
+        for callback in builder.stop_callbacks:
+            try:
+                callback()
+            except Exception:
+                pass
+
     return {
         name: [(_ns_to_dt(t), v) for t, v in rows]
         for name, rows in raw.items()

@@ -138,7 +138,7 @@ struct Node {
 #[derive(Default, Clone)]
 struct EdgeState {
     value: Option<Value>,
-    last_tick: Option<i64>,
+    last_tick: Option<i64>, // id of the cycle in which this edge last ticked
     producer: Option<usize>,
 }
 
@@ -155,6 +155,8 @@ pub struct Engine {
     consumers: Vec<Vec<usize>>, // edge id -> node ids consuming it
     counters: Vec<i64>,         // per-node scratch (Count/FirstN)
     outputs: HashMap<String, Vec<(i64, PyObject)>>,
+    push_adapters: Vec<(usize, Py<PyAny>)>, // (edge, python queue) for realtime push
+    cycle: i64,                             // monotonic engine-cycle counter
     endtime: i64,
 }
 
@@ -168,8 +170,16 @@ impl Engine {
             consumers: Vec::new(),
             counters: Vec::new(),
             outputs: HashMap::new(),
+            push_adapters: Vec::new(),
+            cycle: 0,
             endtime: 0,
         }
+    }
+
+    /// Register a realtime push adapter: items placed on `queue` (a Python
+    /// `queue.Queue`) are injected onto `edge` at wall-clock arrival time.
+    fn register_push_adapter(&mut self, edge: usize, queue: Py<PyAny>) {
+        self.push_adapters.push((edge, queue));
     }
 
     /// Allocate a fresh edge and return its id.
@@ -365,6 +375,7 @@ impl Engine {
         realtime: bool,
     ) -> PyResult<PyObject> {
         self.endtime = end_ns;
+        self.cycle = 0;
         self.finalize()?;
         for v in self.outputs.values_mut() {
             v.clear();
@@ -406,67 +417,14 @@ impl Engine {
             }
         }
 
-        let wall_start = std::time::SystemTime::now();
-
-        while let Some(Reverse((t, _))) = timed.peek().copied() {
-            if t > end_ns {
-                break;
-            }
-            let now = t;
-
-            if realtime {
-                self.realtime_wait(py, now, start_ns, wall_start);
-            }
-
-            // Gather everything scheduled at `now` and seed the cycle queue.
-            let mut cycle: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
-            let mut queued: HashSet<usize> = HashSet::new();
-            let mut ran: HashSet<usize> = HashSet::new();
-
-            while let Some(Reverse((tt, _))) = timed.peek().copied() {
-                if tt != now {
+        if realtime {
+            self.run_realtime(py, start_ns, end_ns, &mut timed, &mut payload, &mut seq)?;
+        } else {
+            while let Some(Reverse((t, _))) = timed.peek().copied() {
+                if t > end_ns {
                     break;
                 }
-                let Reverse((_, s)) = timed.pop().unwrap();
-                match payload.remove(&s).unwrap() {
-                    Sched::Edge(edge, val) => {
-                        self.edges[edge].value = Some(val);
-                        self.edges[edge].last_tick = Some(now);
-                        for &c in &self.consumers[edge] {
-                            if queued.insert(c) {
-                                cycle.push(Reverse((self.nodes[c].rank, c)));
-                            }
-                        }
-                    }
-                    Sched::Node(nid) => {
-                        if queued.insert(nid) {
-                            cycle.push(Reverse((self.nodes[nid].rank, nid)));
-                        }
-                    }
-                }
-            }
-
-            // Fire nodes in rank order within the cycle.
-            while let Some(Reverse((_, nid))) = cycle.pop() {
-                if !ran.insert(nid) {
-                    continue;
-                }
-                let (emits, futures) = self.run_node(py, nid, now)?;
-                for (edge, val) in emits {
-                    self.edges[edge].value = Some(val);
-                    self.edges[edge].last_tick = Some(now);
-                    for &c in &self.consumers[edge] {
-                        if !ran.contains(&c) && queued.insert(c) {
-                            cycle.push(Reverse((self.nodes[c].rank, c)));
-                        }
-                    }
-                }
-                for (edge, ftime, val) in futures {
-                    if ftime <= end_ns {
-                        Self::push_sched(&mut timed, &mut payload, &mut seq, ftime,
-                            Sched::Edge(edge, val));
-                    }
-                }
+                self.process_cycle(py, t, end_ns, &mut timed, &mut payload, &mut seq)?;
             }
         }
 
@@ -507,7 +465,8 @@ impl Engine {
         timed.push(Reverse((time, *seq)));
     }
 
-    /// Compute topological ranks; error on cycles (feedback is not supported).
+    /// Compute topological ranks; error on direct cycles (express loops with
+    /// `rcsp.feedback`, which breaks the cycle with a one-cycle delay).
     fn finalize(&mut self) -> PyResult<()> {
         let n = self.nodes.len();
         let mut rank = vec![-1i64; n];
@@ -528,7 +487,7 @@ impl Engine {
             }
             if visiting[i] {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "cycle detected in graph (feedback is not supported)",
+                    "cycle detected in graph; express loops with rcsp.feedback",
                 ));
             }
             visiting[i] = true;
@@ -552,36 +511,141 @@ impl Engine {
         Ok(())
     }
 
-    fn realtime_wait(
-        &self,
+    /// Process one engine cycle at time `now`: drain injections scheduled at
+    /// `now`, then fire dirty nodes in rank order (glitch-free), applying their
+    /// emissions within the cycle and their alarms to the future queue.
+    fn process_cycle(
+        &mut self,
         py: Python<'_>,
         now: i64,
-        start_ns: i64,
-        wall_start: std::time::SystemTime,
-    ) {
-        let elapsed_target = (now - start_ns) as u128; // ns since sim start
-        let actual = wall_start.elapsed().map(|d| d.as_nanos()).unwrap_or(0);
-        if elapsed_target > actual {
-            let sleep_ns = (elapsed_target - actual) as u64;
-            py.allow_threads(|| {
-                std::thread::sleep(std::time::Duration::from_nanos(sleep_ns));
-            });
+        end_ns: i64,
+        timed: &mut BinaryHeap<Reverse<(i64, u64)>>,
+        payload: &mut HashMap<u64, Sched>,
+        seq: &mut u64,
+    ) -> PyResult<()> {
+        // Each cycle gets a unique id so `ticked` is per-cycle, not per-
+        // timestamp — essential when feedback drives several cycles at one time.
+        self.cycle += 1;
+        let cyc = self.cycle;
+
+        let mut cycle: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
+        let mut queued: HashSet<usize> = HashSet::new();
+        let mut ran: HashSet<usize> = HashSet::new();
+
+        while let Some(Reverse((tt, _))) = timed.peek().copied() {
+            if tt != now {
+                break;
+            }
+            let Reverse((_, s)) = timed.pop().unwrap();
+            match payload.remove(&s).unwrap() {
+                Sched::Edge(edge, val) => {
+                    self.edges[edge].value = Some(val);
+                    self.edges[edge].last_tick = Some(cyc);
+                    for &c in &self.consumers[edge] {
+                        if queued.insert(c) {
+                            cycle.push(Reverse((self.nodes[c].rank, c)));
+                        }
+                    }
+                }
+                Sched::Node(nid) => {
+                    if queued.insert(nid) {
+                        cycle.push(Reverse((self.nodes[nid].rank, nid)));
+                    }
+                }
+            }
         }
+
+        while let Some(Reverse((_, nid))) = cycle.pop() {
+            if !ran.insert(nid) {
+                continue;
+            }
+            let (emits, futures) = self.run_node(py, nid, now, cyc)?;
+            for (edge, val) in emits {
+                self.edges[edge].value = Some(val);
+                self.edges[edge].last_tick = Some(cyc);
+                for &c in &self.consumers[edge] {
+                    if !ran.contains(&c) && queued.insert(c) {
+                        cycle.push(Reverse((self.nodes[c].rank, c)));
+                    }
+                }
+            }
+            for (edge, ftime, val) in futures {
+                if ftime <= end_ns {
+                    Self::push_sched(timed, payload, seq, ftime, Sched::Edge(edge, val));
+                }
+            }
+        }
+        Ok(())
     }
 
-    /// Run a single node at `now`, returning `(immediate emits, future injections)`.
+    /// Realtime driver: pace to the wall clock, draining registered push
+    /// adapters (external threads placing items on a `queue.Queue`) and firing
+    /// timed events as they come due, until the run's duration elapses.
+    fn run_realtime(
+        &mut self,
+        py: Python<'_>,
+        start_ns: i64,
+        end_ns: i64,
+        timed: &mut BinaryHeap<Reverse<(i64, u64)>>,
+        payload: &mut HashMap<u64, Sched>,
+        seq: &mut u64,
+    ) -> PyResult<()> {
+        let wall_start = std::time::Instant::now();
+        let duration_ns = (end_ns - start_ns).max(0) as u128;
+
+        loop {
+            let elapsed = wall_start.elapsed().as_nanos();
+            let now_ns = start_ns + elapsed.min(duration_ns) as i64;
+
+            // Drain external push adapters, injecting at wall-clock arrival time.
+            for i in 0..self.push_adapters.len() {
+                let edge = self.push_adapters[i].0;
+                loop {
+                    let item = {
+                        let q = self.push_adapters[i].1.bind(py);
+                        match q.call_method0("get_nowait") {
+                            Ok(item) => item,
+                            Err(_) => break, // queue.Empty
+                        }
+                    };
+                    let val = Value::from_py(&item);
+                    Self::push_sched(timed, payload, seq, now_ns, Sched::Edge(edge, val));
+                }
+            }
+
+            // Fire everything now due.
+            while let Some(Reverse((t, _))) = timed.peek().copied() {
+                if t > now_ns || t > end_ns {
+                    break;
+                }
+                self.process_cycle(py, t, end_ns, timed, payload, seq)?;
+            }
+
+            if elapsed >= duration_ns {
+                break;
+            }
+            // Sleep briefly, releasing the GIL so pusher threads can enqueue.
+            py.allow_threads(|| std::thread::sleep(std::time::Duration::from_millis(1)));
+        }
+        Ok(())
+    }
+
+    /// Run a single node at time `now` in cycle `cyc`, returning
+    /// `(immediate emits, future injections)`. `cyc` drives `ticked`; `now` is
+    /// the timestamp used for emissions, outputs and alarm scheduling.
     fn run_node(
         &mut self,
         py: Python<'_>,
         nid: usize,
         now: i64,
+        cyc: i64,
     ) -> PyResult<(Vec<(usize, Value)>, Vec<(usize, i64, Value)>)> {
         // Snapshot the pieces we need so we don't hold a borrow of self.nodes.
         let inputs = self.nodes[nid].inputs.clone();
         let outputs = self.nodes[nid].outputs.clone();
         let alarm_base = self.nodes[nid].alarm_base;
 
-        let ticked = |e: usize, edges: &Vec<EdgeState>| edges[e].last_tick == Some(now);
+        let ticked = |e: usize, edges: &Vec<EdgeState>| edges[e].last_tick == Some(cyc);
         let mut emits: Vec<(usize, Value)> = Vec::new();
         let mut futures: Vec<(usize, i64, Value)> = Vec::new();
 
@@ -686,7 +750,7 @@ impl Engine {
                         Some(v) => vals.append(v.to_py(py))?,
                         None => vals.append(py.None())?,
                     }
-                    ticks.append(st.last_tick == Some(now))?;
+                    ticks.append(st.last_tick == Some(cyc))?;
                     valids.append(st.value.is_some())?;
                 }
                 let ret = func.call1(py, (now, &vals, &ticks, &valids))?;

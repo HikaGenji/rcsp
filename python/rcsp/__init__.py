@@ -51,7 +51,19 @@ from ._baselib import (
 )
 from ._run import run, add_graph_output
 from ._viz import show_graph, graph_to_dot, graph_to_mermaid
+from ._interop import to_polars, to_polars_wide, curve_from_frame
+from ._io import (
+    read_parquet,
+    read_csv,
+    write_parquet,
+    write_csv,
+    read_frame,
+    AdapterManager,
+    ReplayAdapterManager,
+    CsvAdapterManager,
+)
 from . import stats
+from . import _profiler as profiler
 
 # csp spells the print adapter ``csp.print``; expose the same name.
 print = print_node
@@ -95,4 +107,17 @@ __all__ = [
     "show_graph",
     "graph_to_dot",
     "graph_to_mermaid",
+    "to_polars",
+    "to_polars_wide",
+    "curve_from_frame",
+    "read_parquet",
+    "read_csv",
+    "write_parquet",
+    "write_csv",
+    "read_frame",
+    "AdapterManager",
+    "ReplayAdapterManager",
+    "CsvAdapterManager",
+    "stats",
+    "profiler",
 ]

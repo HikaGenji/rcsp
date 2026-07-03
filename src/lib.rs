@@ -157,6 +157,9 @@ pub struct Engine {
     outputs: HashMap<String, Vec<(i64, PyObject)>>,
     push_adapters: Vec<(usize, Py<PyAny>)>, // (edge, python queue) for realtime push
     cycle: i64,                             // monotonic engine-cycle counter
+    profile: bool,                          // collect per-node timing this run
+    prof_count: Vec<u64>,                   // per-node execution count
+    prof_ns: Vec<u128>,                     // per-node cumulative exec time (ns)
     endtime: i64,
 }
 
@@ -172,8 +175,35 @@ impl Engine {
             outputs: HashMap::new(),
             push_adapters: Vec::new(),
             cycle: 0,
+            profile: false,
+            prof_count: Vec::new(),
+            prof_ns: Vec::new(),
             endtime: 0,
         }
+    }
+
+    /// Per-node profiling from the last run: list of
+    /// `(id, name, exec_count, total_ns)` for nodes that executed.
+    fn profiling_report(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let rows = PyList::empty_bound(py);
+        for (nid, node) in self.nodes.iter().enumerate() {
+            let count = self.prof_count.get(nid).copied().unwrap_or(0);
+            if count == 0 {
+                continue;
+            }
+            let total = self.prof_ns.get(nid).copied().unwrap_or(0);
+            let tup = PyTuple::new_bound(
+                py,
+                &[
+                    nid.into_py(py),
+                    node.name.clone().into_py(py),
+                    count.into_py(py),
+                    (total as u64).into_py(py),
+                ],
+            );
+            rows.append(tup)?;
+        }
+        Ok(rows.into())
     }
 
     /// Register a realtime push adapter: items placed on `queue` (a Python
@@ -412,15 +442,20 @@ impl Engine {
 
     /// Run the engine over `[start_ns, end_ns]`. Returns
     /// `{name: [(time_ns, value), ...]}` for every registered graph output.
+    #[pyo3(signature = (start_ns, end_ns, realtime, profile = false))]
     fn run(
         &mut self,
         py: Python<'_>,
         start_ns: i64,
         end_ns: i64,
         realtime: bool,
+        profile: bool,
     ) -> PyResult<PyObject> {
         self.endtime = end_ns;
         self.cycle = 0;
+        self.profile = profile;
+        self.prof_count = vec![0; self.nodes.len()];
+        self.prof_ns = vec![0; self.nodes.len()];
         self.finalize()?;
         for v in self.outputs.values_mut() {
             v.clear();
@@ -604,7 +639,16 @@ impl Engine {
             if !ran.insert(nid) {
                 continue;
             }
+            let t0 = if self.profile {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
             let (emits, futures) = self.run_node(py, nid, now, cyc)?;
+            if let Some(t0) = t0 {
+                self.prof_count[nid] += 1;
+                self.prof_ns[nid] += t0.elapsed().as_nanos();
+            }
             for (edge, val) in emits {
                 self.edges[edge].value = Some(val);
                 self.edges[edge].last_tick = Some(cyc);

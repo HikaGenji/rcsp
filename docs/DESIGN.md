@@ -123,6 +123,14 @@ drop-in replacement. Notable differences:
 * `rcsp.stats` provides rolling-window statistics (mean/sum/var/stddev/min/max/
   median/…) over tick-count or time windows, as pure Python nodes over the
   existing primitives.
+* `rcsp.profiler.Profiler()` collects per-node execution counts and cumulative
+  time; the engine times each `run_node` call when profiling is enabled.
+* NumPy arrays flow through edges unchanged (edges carry Python objects);
+  `rcsp.to_polars` / `to_polars_wide` collect run results into Polars frames.
+* File I/O adapters (`read_parquet`/`read_csv` pull, `write_parquet`/`write_csv`
+  output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one
+  source → per-key streams) build on `curve` and engine-stop callbacks. NumPy
+  and Polars are optional (`pip install rcsp[data]`).
 * Baskets, `csp.struct` (dataclasses stand in — edges already carry arbitrary
   Python objects), adapter managers, dynamic graphs, and NumPy/pandas interop
   are out of scope; see [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.

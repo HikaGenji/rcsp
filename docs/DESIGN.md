@@ -125,7 +125,12 @@ drop-in replacement. Notable differences:
   existing primitives.
 * `rcsp.profiler.Profiler()` collects per-node execution counts and cumulative
   time; the engine times each `run_node` call when profiling is enabled.
-* NumPy arrays flow through edges unchanged (edges carry Python objects);
+* NumPy arrays and Polars/pandas DataFrames flow through edges unchanged (edges
+  carry Python objects via `Value::Py`, by reference). They can also be passed as
+  scalar node params (captured at build time). `rcsp.apply(fn, *edges)` runs an
+  arbitrary function over edge values each cycle — the ergonomic way to operate on
+  DataFrame edges. Native Edge arithmetic is numeric-only: `+`/`-`/`*`/`/` on
+  non-numeric values raises a clear error (do such ops in a node body / `apply`).
   `rcsp.to_polars` / `to_polars_wide` collect run results into Polars frames.
 * File I/O adapters (`read_parquet`/`read_csv` pull, `write_parquet`/`write_csv`
   output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one

@@ -48,6 +48,7 @@ from ._baselib import (
     print_node,
     curve,
     split,
+    apply,
 )
 from ._run import run, add_graph_output
 from ._dynamic import dynamic
@@ -104,6 +105,7 @@ __all__ = [
     "print_node",
     "curve",
     "split",
+    "apply",
     "run",
     "add_graph_output",
     "dynamic",

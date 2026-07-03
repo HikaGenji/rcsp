@@ -918,8 +918,17 @@ impl Engine {
                 let a = self.edges[inputs[0]].value.clone();
                 let b = self.edges[inputs[1]].value.clone();
                 if let (Some(a), Some(b)) = (a, b) {
-                    if let Some(v) = apply_binop(*op, &a, &b) {
-                        emits.push((outputs[0], v));
+                    match apply_binop(*op, &a, &b) {
+                        Some(v) => emits.push((outputs[0], v)),
+                        // Both inputs are valid but not numeric (e.g. DataFrames).
+                        // Surface the footgun instead of silently never ticking.
+                        None => {
+                            let sym = &self.nodes[nid].name;
+                            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                                "rcsp: operator '{sym}' needs numeric time-series values; \
+                                 do the operation inside a @node body or with rcsp.apply()"
+                            )));
+                        }
                     }
                 }
             }

@@ -1,0 +1,112 @@
+"""Built-in nodes (``rcsp.baselib`` equivalent).
+
+Most of these map straight onto native Rust kernels for speed; ``curve`` is a
+small Python-node adapter that replays a fixed series."""
+
+from datetime import datetime, timedelta
+
+from ._graph import Edge, current_builder
+from ._node import _dt_to_ns, _to_ns
+
+
+def const(value):
+    """A constant that ticks once at start time."""
+    return current_builder().const(value)
+
+
+def timer(interval, value=True):
+    """Tick ``value`` every ``interval`` (a :class:`~datetime.timedelta`)."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_timer(out, _to_ns(interval), value)
+    return Edge(b, out)
+
+
+def sample(trigger, x):
+    """Sample ``x``'s current value whenever ``trigger`` ticks."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_sample(trigger.id, x.id, out)
+    return Edge(b, out)
+
+
+def filter(flag, x):
+    """Pass ``x`` through only while ``flag`` is true."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_filter(flag.id, x.id, out)
+    return Edge(b, out)
+
+
+def merge(x, y):
+    """Merge two series; ``x`` wins if both tick in the same cycle."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_merge(x.id, y.id, out)
+    return Edge(b, out)
+
+
+def count(x):
+    """Count the number of ticks seen on ``x``."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_count(x.id, out)
+    return Edge(b, out)
+
+
+def firstN(x, n):
+    """Pass through only the first ``n`` ticks of ``x``."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_firstn(x.id, out, int(n))
+    return Edge(b, out)
+
+
+def delay(x, delta):
+    """Re-emit each tick of ``x`` delayed by ``delta`` (a timedelta)."""
+    b = current_builder()
+    out = b.engine.new_edge()
+    b.engine.add_delay(x.id, out, _to_ns(delta))
+    return Edge(b, out)
+
+
+def print_node(name, x):
+    """Print each tick of ``x`` with a label to stdout."""
+    current_builder().engine.add_print(name, x.id)
+
+
+def curve(typ, data):
+    """Replay a fixed series ``data`` of ``(time, value)`` pairs.
+
+    ``time`` may be a :class:`~datetime.timedelta` offset from start time or an
+    absolute :class:`~datetime.datetime`.
+    """
+    b = current_builder()
+    out = b.engine.new_edge()
+    alarm = b.engine.new_edge()
+
+    points = []
+    for t, v in data:
+        points.append((t, v))
+    seeded = {"done": False}
+
+    def cb(now_ns, values, ticked_flags, valid_flags):
+        emissions = []
+        alarms = []
+        if not seeded["done"]:
+            seeded["done"] = True
+            for t, v in points:
+                if isinstance(t, timedelta):
+                    delay_ns = _to_ns(t)
+                else:  # absolute datetime
+                    delay_ns = _dt_to_ns(t) - now_ns
+                if delay_ns < 0:
+                    delay_ns = 0
+                alarms.append((0, delay_ns, v))
+        # input layout: [alarm]; when the alarm fires, emit its value
+        if ticked_flags[0]:
+            emissions.append((0, values[0]))
+        return (emissions, alarms)
+
+    b.engine.add_python_node(cb, [], [alarm], [out], "curve", True)
+    return Edge(b, out)

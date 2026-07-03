@@ -17,6 +17,12 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 
+[project.optional-dependencies]
+# NumPy/Polars interop and file I/O adapters (rcsp.to_polars, read/write_parquet).
+data = ["numpy", "polars"]
+# Graph visualization image rendering also needs the Graphviz `dot` binary.
+viz = ["graphviz"]
+
 [project.urls]
 Homepage = "https://github.com/hikagenji/rcsp"
 

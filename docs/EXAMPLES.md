@@ -23,15 +23,15 @@ needs an unimplemented subsystem.
 |---|---|---|
 | `e1_feedback.py` — feedback edges | ✅ | [`examples/csp_ports/02_intermediate/e1_feedback.py`](../examples/csp_ports/02_intermediate/e1_feedback.py) |
 | `e2_stats.py` — `csp.stats` library | ✅ | [`examples/csp_ports/02_intermediate/e2_stats.py`](../examples/csp_ports/02_intermediate/e2_stats.py) |
-| `e3_numpy_stats.py` — NumPy rolling stats | ⛔ | needs NumPy-array time series + stats (not implemented) |
+| `e3_numpy_stats.py` — NumPy rolling stats | ✅ | [`examples/csp_ports/02_intermediate/e3_numpy_stats.py`](../examples/csp_ports/02_intermediate/e3_numpy_stats.py) |
 | `e4_exprtk.py` — ExprTk expression eval | ⛔ | needs the ExprTk adapter (not implemented) |
 
 ## 03_using_adapters
 
 | CSP example | rcsp | Where |
 |---|---|---|
-| `kafka/e1_kafka.py` | ⛔ | needs the Kafka adapter |
-| `parquet/e1_parquet_write_read.py` | ⛔ | needs the Parquet adapter |
+| `kafka/e1_kafka.py` | ⛔ | needs the Kafka adapter (external broker) |
+| `parquet/e1_parquet_write_read.py` | ✅ | [`examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py`](../examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py) |
 | `websocket/e1_websocket_client.py` | ⛔ | needs the websocket adapter |
 | `websocket/e2_websocket_output.py` | ⛔ | needs the websocket adapter |
 
@@ -41,11 +41,11 @@ needs an unimplemented subsystem.
 |---|---|---|
 | `e1_generic_push_adapter.py` — realtime push | ✅ | [`examples/csp_ports/04_writing_adapters/e1_generic_push_adapter.py`](../examples/csp_ports/04_writing_adapters/e1_generic_push_adapter.py) |
 | `e2_pullinput.py` — replay historical data | ✅ | [`examples/csp_ports/04_writing_adapters/e2_pullinput.py`](../examples/csp_ports/04_writing_adapters/e2_pullinput.py) (via `curve`) |
-| `e3_adaptermanager_pullinput.py` | 🟡 | single-source pull covered; adapter-manager fan-out not modelled |
+| `e3_adaptermanager_pullinput.py` | ✅ | [`examples/csp_ports/04_writing_adapters/e3_adaptermanager_pullinput.py`](../examples/csp_ports/04_writing_adapters/e3_adaptermanager_pullinput.py) |
 | `e4_pushinput.py` — custom push adapter | 🟡 | covered by `GenericPushAdapter` |
-| `e5_adaptermanager_pushinput.py` | ⛔ | needs an adapter-manager framework |
-| `e6_outputadapter.py` | 🟡 | output covered by `add_graph_output` / `print` |
-| `e7_adaptermanager_inputoutput.py` | ⛔ | needs an adapter-manager framework |
+| `e5_adaptermanager_pushinput.py` | 🟡 | `AdapterManager` covers pull fan-out; realtime push-manager not modelled |
+| `e6_outputadapter.py` | ✅ | `write_parquet` / `write_csv` output adapters |
+| `e7_adaptermanager_inputoutput.py` | 🟡 | input manager + output adapters exist; combined manager not modelled |
 
 ## 05_cpp
 
@@ -77,18 +77,24 @@ needs an unimplemented subsystem.
 
 | CSP example | rcsp | Notes |
 |---|---|---|
-| `e1_profiling.py` | ⛔ | needs a graph profiler (not implemented) |
+| `e1_profiling.py` | ✅ | [`examples/csp_ports/99_developer_tools/e1_profiling.py`](../examples/csp_ports/99_developer_tools/e1_profiling.py) |
 
 ## Summary
 
-Everything expressible with rcsp's current feature set is ported. The ⛔
-entries are honest gaps: they require subsystems (NumPy/pandas interop,
-Kafka/Parquet/websocket adapters, adapter managers, dynamic graphs, profiling)
-or a C++ toolchain that rcsp does not provide. See [`DESIGN.md`](DESIGN.md) for
-the scope rationale.
+The remaining ⛔ entries are honest gaps: they require network I/O (Kafka /
+websocket brokers), pandas interop, C++ nodes, or runtime graph mutation
+(dynamic graphs). See [`DESIGN.md`](DESIGN.md) for the scope rationale.
+
+Now available in rcsp:
 
 - Graph visualization: `rcsp.show_graph` / `rcsp.graph_to_dot` /
-  `rcsp.graph_to_mermaid` (image rendering needs the Graphviz `dot` binary; DOT
-  and Mermaid text need nothing).
+  `rcsp.graph_to_mermaid` (image rendering needs the Graphviz `dot` binary).
 - Rolling-window statistics: `rcsp.stats.{mean,sum,count,min,max,var,stddev,
   median,first,last,prod}` over tick-count or time windows.
+- Profiling: `rcsp.profiler.Profiler()` for per-node counts and cumulative time.
+- NumPy/Polars interop: arrays flow through edges natively; `rcsp.to_polars` /
+  `to_polars_wide` collect run results.
+- File I/O adapters: `rcsp.read_parquet` / `read_csv` (pull) and
+  `write_parquet` / `write_csv` (output).
+- Adapter managers: `rcsp.ReplayAdapterManager` / `CsvAdapterManager` fan one
+  source out to per-key streams.

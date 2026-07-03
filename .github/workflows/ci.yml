@@ -43,7 +43,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y graphviz
 
       - name: Install build & test tooling
-        run: python -m pip install --upgrade pip maturin pytest graphviz
+        run: python -m pip install --upgrade pip maturin pytest graphviz numpy polars
 
       - name: Build the Rust extension
         run: maturin build --release --out dist
@@ -66,4 +66,8 @@ jobs:
           python examples/csp_ports/02_intermediate/e1_feedback.py
           python examples/csp_ports/02_intermediate/e2_stats.py
           python examples/csp_ports/04_writing_adapters/e2_pullinput.py
+          python examples/csp_ports/04_writing_adapters/e3_adaptermanager_pullinput.py
           python examples/csp_ports/98_just_for_fun/e1_csp_nand_computer.py
+          python examples/csp_ports/02_intermediate/e3_numpy_stats.py
+          python examples/csp_ports/03_using_adapters/parquet/e1_parquet_write_read.py
+          python examples/csp_ports/99_developer_tools/e1_profiling.py

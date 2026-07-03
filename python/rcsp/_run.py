@@ -37,16 +37,21 @@ def run(graph, *args, starttime, endtime=None, realtime=False, **kwargs):
 
     # Let realtime push adapters begin producing, then run; always fire
     # engine-stop callbacks afterwards (e.g. to join driver threads).
+    from ._profiler import _current as _current_profiler
+
+    profiler = _current_profiler()
     for adapter in builder.push_adapters:
         adapter._signal_start()
     try:
-        raw = builder.engine.run(start_ns, end_ns, realtime)
+        raw = builder.engine.run(start_ns, end_ns, realtime, profiler is not None)
     finally:
         for callback in builder.stop_callbacks:
             try:
                 callback()
             except Exception:
                 pass
+    if profiler is not None:
+        profiler._ingest(builder.engine.profiling_report())
 
     return {
         name: [(_ns_to_dt(t), v) for t, v in rows]

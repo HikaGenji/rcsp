@@ -24,6 +24,10 @@ of every CSP example ported into rcsp.
 - **`show_graph`** / `graph_to_dot` / `graph_to_mermaid` graph visualization
 - **`rcsp.stats`** rolling-window statistics (mean, sum, var, stddev, min, max,
   median, …) over tick-count or time windows
+- **`rcsp.profiler`** per-node execution counts and timing
+- **NumPy/Polars interop** — arrays flow through edges; `to_polars` collects results
+- **file I/O adapters** — `read_parquet`/`read_csv` (pull), `write_parquet`/`write_csv` (output)
+- **adapter managers** — fan one source out to per-key streams
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),

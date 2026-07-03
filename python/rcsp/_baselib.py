@@ -92,6 +92,30 @@ def split(flag, x):
     return _split_node(flag, x)
 
 
+def apply(fn, *edges):
+    """Apply ``fn`` to the current values of ``edges`` each cycle, emitting the
+    result. Ticks when any input ticks and all are valid; a ``None`` result is
+    skipped. This is the ergonomic way to run an arbitrary operation — including
+    DataFrame/NumPy ops — on edge values without writing a full ``@node``::
+
+        mid = rcsp.apply(lambda b, a: (b + a) / 2, bid, ask)
+        mean = rcsp.apply(lambda df: df["px"].mean(), frame_edge)
+    """
+    b = current_builder()
+    out = b.engine.new_edge()
+    ids = [e.id for e in edges]
+
+    def cb(now_ns, values, ticked_flags, valid_flags):
+        if any(ticked_flags) and all(valid_flags):
+            result = fn(*values)
+            if result is not None:
+                return ([(0, result)], [])
+        return ([], [])
+
+    b.engine.add_python_node(cb, ids, [], [out], getattr(fn, "__name__", "apply"), False)
+    return Edge(b, out)
+
+
 def curve(typ, data):
     """Replay a fixed series ``data`` of ``(time, value)`` pairs.
 

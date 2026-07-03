@@ -18,7 +18,10 @@ of every CSP example ported into rcsp.
 - `@node` / `@graph`, `ts[T]`, single and named (`Outputs`) outputs
 - `ticked` / `valid`, per-node `state`, `starting`, and user alarms
 - baselib: `const`, `timer`, `sample`, `filter`, `merge`, `count`, `firstN`,
-  `delay`, `split`, `curve`, `print`, plus native arithmetic/comparison on edges
+  `delay`, `split`, `curve`, `print`, `apply`, plus native arithmetic on edges
+- pass **arbitrary Python objects** (NumPy arrays, Polars/pandas DataFrames)
+  through edges and as scalar node params; `rcsp.apply(fn, *edges)` runs any
+  function over edge values
 - **`feedback`** edges for graph cycles (e.g. algo ↔ exchange loops)
 - **`GenericPushAdapter`** for pushing realtime data in from other threads
 - **`show_graph`** / `graph_to_dot` / `graph_to_mermaid` graph visualization

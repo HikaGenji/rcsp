@@ -59,7 +59,7 @@ needs an unimplemented subsystem.
 | CSP example | rcsp | Notes |
 |---|---|---|
 | `e1_dynamic.py` — dynamic graphs | ✅ | [`examples/csp_ports/06_advanced/e1_dynamic.py`](../examples/csp_ports/06_advanced/e1_dynamic.py) |
-| `e2_pandas_extension.py` | ⛔ | needs the pandas extension |
+| `e2_pandas_extension.py` | 🟡 | the pandas *ts-type extension* isn't ported, but DataFrames pass as scalar params and `ts[object]` edge values — see [`examples/e5_dataframes.py`](../examples/e5_dataframes.py) |
 
 ## 07_end_to_end
 
@@ -102,3 +102,6 @@ Now available in rcsp:
   new key at runtime (simulation), via the engine's stepped-execution API.
 - Kafka: `rcsp.KafkaAdapterManager` `subscribe`/`publish` (via `kafka-python`),
   with an in-process `rcsp.InMemoryKafka` broker double for tests/demos.
+- DataFrames / arbitrary objects: pass Polars/pandas frames as scalar node params
+  or as `ts[object]` edge values; `rcsp.apply(fn, *edges)` runs a function over
+  edge values. See [`examples/e5_dataframes.py`](../examples/e5_dataframes.py).

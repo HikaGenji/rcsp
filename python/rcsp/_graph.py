@@ -25,6 +25,8 @@ class Builder:
         # Realtime push adapters to signal at start, and callbacks to run at stop.
         self.push_adapters = []
         self.stop_callbacks = []
+        # Registered dynamic-graph controllers (see rcsp.dynamic).
+        self.dynamics = []
 
     def new_edge(self):
         return Edge(self, self.engine.new_edge())

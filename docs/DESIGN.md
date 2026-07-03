@@ -131,9 +131,18 @@ drop-in replacement. Notable differences:
   output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one
   source → per-key streams) build on `curve` and engine-stop callbacks. NumPy
   and Polars are optional (`pip install rcsp[data]`).
+* `rcsp.dynamic(control, factory)` grows the graph at runtime. Runtime mutation
+  fights two constraints: the run loop borrows the engine for its whole duration,
+  and PyO3 forbids re-entering `engine.add_*` while it's borrowed. The fix is a
+  **stepped engine** (`begin`/`step`/`outputs`): Python advances one timestamp
+  per `step()`, and *between* steps — when nothing borrows the engine — the
+  driver builds new sub-graphs. The next `step()` calls `integrate()`, which
+  re-ranks, re-wires the consumers map, grows the profiling/scratch vectors, and
+  seeds any new sources at the current frontier. Simulation only; a key's
+  sub-graph starts from the tick after the one that spawned it.
 * Baskets, `csp.struct` (dataclasses stand in — edges already carry arbitrary
-  Python objects), adapter managers, dynamic graphs, and NumPy/pandas interop
-  are out of scope; see [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
+  Python objects), pandas interop, and Kafka/websocket adapters are out of
+  scope; see [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
 
 ## 5. Why not timely / differential dataflow?
 

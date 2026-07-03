@@ -22,6 +22,8 @@ of every CSP example ported into rcsp.
 - **`feedback`** edges for graph cycles (e.g. algo ↔ exchange loops)
 - **`GenericPushAdapter`** for pushing realtime data in from other threads
 - **`show_graph`** / `graph_to_dot` / `graph_to_mermaid` graph visualization
+- **`rcsp.stats`** rolling-window statistics (mean, sum, var, stddev, min, max,
+  median, …) over tick-count or time windows
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),

@@ -22,7 +22,7 @@ needs an unimplemented subsystem.
 | CSP example | rcsp | Where |
 |---|---|---|
 | `e1_feedback.py` — feedback edges | ✅ | [`examples/csp_ports/02_intermediate/e1_feedback.py`](../examples/csp_ports/02_intermediate/e1_feedback.py) |
-| `e2_stats.py` — `csp.stats` library | ⛔ | needs the rolling-window stats library (not implemented) |
+| `e2_stats.py` — `csp.stats` library | ✅ | [`examples/csp_ports/02_intermediate/e2_stats.py`](../examples/csp_ports/02_intermediate/e2_stats.py) |
 | `e3_numpy_stats.py` — NumPy rolling stats | ⛔ | needs NumPy-array time series + stats (not implemented) |
 | `e4_exprtk.py` — ExprTk expression eval | ⛔ | needs the ExprTk adapter (not implemented) |
 
@@ -82,11 +82,13 @@ needs an unimplemented subsystem.
 ## Summary
 
 Everything expressible with rcsp's current feature set is ported. The ⛔
-entries are honest gaps: they require subsystems (stats, NumPy/pandas interop,
+entries are honest gaps: they require subsystems (NumPy/pandas interop,
 Kafka/Parquet/websocket adapters, adapter managers, dynamic graphs, profiling)
 or a C++ toolchain that rcsp does not provide. See [`DESIGN.md`](DESIGN.md) for
 the scope rationale.
 
-Graph visualization is available via `rcsp.show_graph` / `rcsp.graph_to_dot` /
-`rcsp.graph_to_mermaid` (image rendering needs the Graphviz `dot` binary; DOT
-and Mermaid text need nothing).
+- Graph visualization: `rcsp.show_graph` / `rcsp.graph_to_dot` /
+  `rcsp.graph_to_mermaid` (image rendering needs the Graphviz `dot` binary; DOT
+  and Mermaid text need nothing).
+- Rolling-window statistics: `rcsp.stats.{mean,sum,count,min,max,var,stddev,
+  median,first,last,prod}` over tick-count or time windows.

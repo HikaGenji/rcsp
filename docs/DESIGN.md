@@ -120,10 +120,12 @@ drop-in replacement. Notable differences:
   `run_realtime` in `src/lib.rs`).
 * `rcsp.show_graph` / `graph_to_dot` / `graph_to_mermaid` render the built graph
   (via `Engine.topology`); image output uses the Graphviz `dot` binary.
+* `rcsp.stats` provides rolling-window statistics (mean/sum/var/stddev/min/max/
+  median/…) over tick-count or time windows, as pure Python nodes over the
+  existing primitives.
 * Baskets, `csp.struct` (dataclasses stand in — edges already carry arbitrary
-  Python objects), adapter managers, dynamic graphs, and the full
-  `csp.stats`/`csp.math` libraries are out of scope; see
-  [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
+  Python objects), adapter managers, dynamic graphs, and NumPy/pandas interop
+  are out of scope; see [`EXAMPLES.md`](EXAMPLES.md) for the per-example status.
 
 ## 5. Why not timely / differential dataflow?
 

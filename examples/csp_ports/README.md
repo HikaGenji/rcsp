@@ -9,6 +9,7 @@ organized under the same category folders, rewritten against rcsp's API.
 | `01_basics/e3_show_graph.py` | `01_basics/e3_show_graph.py` | `show_graph` / DOT / Mermaid visualization |
 | `01_basics/e4_trade_pnl.py` | `01_basics/e4_trade_pnl.py` | `split`, structs (dataclasses), VWAP, PnL |
 | `02_intermediate/e1_feedback.py` | `02_intermediate/e1_feedback.py` | `feedback` edges, alarms |
+| `02_intermediate/e2_stats.py` | `02_intermediate/e2_stats.py` | `rcsp.stats` rolling mean/stddev, Bollinger bands |
 | `04_writing_adapters/e1_generic_push_adapter.py` | `04_writing_adapters/e1_generic_push_adapter.py` | realtime `GenericPushAdapter`, threads |
 | `04_writing_adapters/e2_pullinput.py` | `04_writing_adapters/e2_pullinput.py` | pull/replay via `curve` |
 | `98_just_for_fun/e1_csp_nand_computer.py` | `98_just_for_fun/e1_csp_nand_computer.py` | one NAND node → a 16-bit adder |

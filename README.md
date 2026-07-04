@@ -55,8 +55,7 @@ from rcsp import ts
 
 @rcsp.node
 def add(x: ts[int], y: ts[int]) -> ts[int]:
-    if rcsp.ticked(x, y) and rcsp.valid(x, y):
-        return x + y
+    return x + y
 
 
 @rcsp.graph

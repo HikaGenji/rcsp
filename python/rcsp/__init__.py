@@ -66,6 +66,7 @@ from ._io import (
 )
 from ._kafka import KafkaAdapterManager, InMemoryKafka
 from ._bench import native_latency_benchmark
+from ._probe import producer_benchmark
 from . import stats
 from . import _profiler as profiler
 
@@ -127,6 +128,7 @@ __all__ = [
     "KafkaAdapterManager",
     "InMemoryKafka",
     "native_latency_benchmark",
+    "producer_benchmark",
     "stats",
     "profiler",
 ]

@@ -154,10 +154,11 @@ pub struct Engine {
     edges: Vec<EdgeState>,
     consumers: Vec<Vec<usize>>, // edge id -> node ids consuming it
     counters: Vec<i64>,         // per-node scratch (Count/FirstN)
-    outputs: HashMap<String, Vec<(i64, PyObject)>>,
+    outputs: HashMap<String, Vec<(i64, Value)>>, // typed → captured GIL-free on the native path
     push_adapters: Vec<(usize, Py<PyAny>)>, // (edge, python queue) for realtime push
     rt_wakeup: Option<Py<PyAny>>,           // queue.Queue tokened by push_tick to wake the realtime loop
     rt_max_idle_ns: i64,                    // realtime: max time to block when idle
+    native_ring: Option<Arc<ArrayQueue<(usize, NV)>>>, // lock-free input for the native path
     cycle: i64,                             // monotonic engine-cycle counter
     profile: bool,                          // collect per-node timing this run
     prof_count: Vec<u64>,                   // per-node execution count
@@ -186,6 +187,7 @@ impl Engine {
             push_adapters: Vec::new(),
             rt_wakeup: None,
             rt_max_idle_ns: 1_000_000,
+            native_ring: None,
             cycle: 0,
             profile: false,
             prof_count: Vec::new(),
@@ -298,6 +300,48 @@ impl Engine {
     fn set_realtime_options(&mut self, wakeup: Option<Py<PyAny>>, max_idle_ns: i64) {
         self.rt_wakeup = wakeup;
         self.rt_max_idle_ns = max_idle_ns.max(0);
+    }
+
+    /// Create the lock-free input ring for the native path and return a handle
+    /// producers push typed values onto.
+    fn enable_native_ring(&mut self, capacity: usize) -> NativeRing {
+        let ring = Arc::new(ArrayQueue::new(capacity.max(1)));
+        self.native_ring = Some(ring.clone());
+        NativeRing { ring }
+    }
+
+    /// Run a **native-only** graph with the whole engine loop GIL-free (see
+    /// docs/REALTIME.md). Errors if the graph contains any Python node or
+    /// non-native kernel. Returns `{name: [(time_ns, value), ...]}`.
+    #[pyo3(signature = (start_ns, end_ns, realtime = true))]
+    fn run_native(
+        &mut self,
+        py: Python<'_>,
+        start_ns: i64,
+        end_ns: i64,
+        realtime: bool,
+    ) -> PyResult<PyObject> {
+        self.finalize()?;
+        let mut g = self
+            .compile_native()
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let ring = self.native_ring.clone();
+
+        // The whole discrete-event loop runs with the GIL released — no Python,
+        // no lock — over the compiled native graph.
+        py.allow_threads(|| native_run_loop(&mut g, ring, start_ns, end_ns, realtime));
+
+        // Marshal typed outputs back to Python once, under the GIL.
+        let dict = pyo3::types::PyDict::new_bound(py);
+        for (i, name) in g.out_names.iter().enumerate() {
+            let list = PyList::empty_bound(py);
+            for (t, nv) in &g.out_rows[i] {
+                let tup = PyTuple::new_bound(py, &[t.into_py(py), nv.to_py(py)]);
+                list.append(tup)?;
+            }
+            dict.set_item(name, list)?;
+        }
+        Ok(dict.into())
     }
 
     /// Micro-benchmark of the native GIL-free hot path (see docs/REALTIME.md):
@@ -723,13 +767,80 @@ impl Engine {
         Ok(())
     }
 
+    /// Lower the built graph to a native (Python-free) form for GIL-free
+    /// execution. Errors if any node isn't a supported native kernel.
+    fn compile_native(&self) -> Result<NativeGraph, String> {
+        let n_edges = self.edges.len();
+        let mut out_names: Vec<String> = Vec::new();
+        let mut nodes: Vec<NNode> = Vec::with_capacity(self.nodes.len());
+
+        for node in self.nodes.iter() {
+            let kind = match &node.kernel {
+                Kernel::Const { value } => NKernel::Const(
+                    NV::from_value(value).ok_or("native realtime: const value must be numeric/bool")?,
+                ),
+                Kernel::Timer { interval, value } => NKernel::Timer {
+                    interval: *interval,
+                    value: NV::from_value(value)
+                        .ok_or("native realtime: timer value must be numeric/bool")?,
+                },
+                Kernel::Delay { delta } => NKernel::Delay { delta: *delta },
+                Kernel::Count => NKernel::Count,
+                Kernel::FirstN { n } => NKernel::FirstN(*n),
+                Kernel::BinOp { op } => NKernel::BinOp(*op),
+                Kernel::Filter => NKernel::Filter,
+                Kernel::Sample => NKernel::Sample,
+                Kernel::Merge => NKernel::Merge,
+                Kernel::GraphOutput { name } => {
+                    let idx = out_names.iter().position(|n| n == name).unwrap_or_else(|| {
+                        out_names.push(name.clone());
+                        out_names.len() - 1
+                    });
+                    NKernel::GraphOutput(idx)
+                }
+                Kernel::Print { .. } => {
+                    return Err("native realtime does not support print(); use graph outputs".into());
+                }
+                Kernel::Python { .. } => {
+                    return Err("native realtime requires a native-only graph, but the graph \
+                                contains a @node (Python) computation; use realtime=True instead"
+                        .into());
+                }
+            };
+            nodes.push(NNode {
+                kind,
+                inputs: node.inputs.clone(),
+                outputs: node.outputs.clone(),
+                rank: node.rank,
+            });
+        }
+
+        let mut consumers: Vec<Vec<usize>> = vec![Vec::new(); n_edges];
+        for (nid, node) in nodes.iter().enumerate() {
+            for &e in &node.inputs {
+                consumers[e].push(nid);
+            }
+        }
+        let out_rows = vec![Vec::new(); out_names.len()];
+        Ok(NativeGraph {
+            counters: vec![0; nodes.len()],
+            nodes,
+            consumers,
+            values: vec![None; n_edges],
+            last_tick: vec![-1; n_edges],
+            out_names,
+            out_rows,
+            cycle: 0,
+        })
+    }
+
     /// Marshal collected graph outputs into `{name: [(time_ns, value), ...]}`.
     fn collect_outputs(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new_bound(py);
         for (name, rows) in self.outputs.iter() {
             let list = PyList::empty_bound(py);
             for (t, v) in rows {
-                let tup = PyTuple::new_bound(py, &[t.into_py(py), v.clone_ref(py)]);
+                let tup = PyTuple::new_bound(py, &[t.into_py(py), v.to_py(py)]);
                 list.append(tup)?;
             }
             dict.set_item(name, list)?;
@@ -973,111 +1084,29 @@ impl Engine {
         now: i64,
         cyc: i64,
     ) -> PyResult<(Vec<(usize, Value)>, Vec<(usize, i64, Value)>)> {
-        // Snapshot the pieces we need so we don't hold a borrow of self.nodes.
+        // Native kernels run without the GIL; only Python and Print need it.
+        let needs_py = matches!(
+            self.nodes[nid].kernel,
+            Kernel::Python { .. } | Kernel::Print { .. }
+        );
+        if !needs_py {
+            return self
+                .run_node_native(nid, now, cyc)
+                .map_err(pyo3::exceptions::PyValueError::new_err);
+        }
+
         let inputs = self.nodes[nid].inputs.clone();
         let outputs = self.nodes[nid].outputs.clone();
         let alarm_base = self.nodes[nid].alarm_base;
-
-        let ticked = |e: usize, edges: &Vec<EdgeState>| edges[e].last_tick == Some(cyc);
         let mut emits: Vec<(usize, Value)> = Vec::new();
         let mut futures: Vec<(usize, i64, Value)> = Vec::new();
 
         match &self.nodes[nid].kernel {
-            Kernel::Const { value } => {
-                emits.push((outputs[0], value.clone()));
-            }
-            Kernel::Timer { interval, value } => {
-                emits.push((outputs[0], value.clone()));
-                futures.push((inputs[0], now + interval, Value::Bool(true)));
-            }
-            Kernel::Delay { delta } => {
-                let x = inputs[0];
-                let alarm = inputs[1];
-                if ticked(x, &self.edges) {
-                    if let Some(v) = &self.edges[x].value {
-                        futures.push((alarm, now + delta, v.clone()));
-                    }
-                }
-                if ticked(alarm, &self.edges) {
-                    if let Some(v) = &self.edges[alarm].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                }
-            }
-            Kernel::Count => {
-                self.counters[nid] += 1;
-                emits.push((outputs[0], Value::Int(self.counters[nid])));
-            }
-            Kernel::FirstN { n } => {
-                if self.counters[nid] < *n {
-                    self.counters[nid] += 1;
-                    if let Some(v) = &self.edges[inputs[0]].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                }
-            }
-            Kernel::BinOp { op } => {
-                let a = self.edges[inputs[0]].value.clone();
-                let b = self.edges[inputs[1]].value.clone();
-                if let (Some(a), Some(b)) = (a, b) {
-                    match apply_binop(*op, &a, &b) {
-                        Some(v) => emits.push((outputs[0], v)),
-                        // Both inputs are valid but not numeric (e.g. DataFrames).
-                        // Surface the footgun instead of silently never ticking.
-                        None => {
-                            let sym = &self.nodes[nid].name;
-                            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                                "rcsp: operator '{sym}' needs numeric time-series values; \
-                                 do the operation inside a @node body or with rcsp.apply()"
-                            )));
-                        }
-                    }
-                }
-            }
-            Kernel::Filter => {
-                let flag = inputs[0];
-                let x = inputs[1];
-                let pass = self.edges[flag].value.as_ref().map(|v| v.is_truthy()).unwrap_or(false);
-                if ticked(x, &self.edges) && pass {
-                    if let Some(v) = &self.edges[x].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                }
-            }
-            Kernel::Sample => {
-                let trigger = inputs[0];
-                let x = inputs[1];
-                if ticked(trigger, &self.edges) {
-                    if let Some(v) = &self.edges[x].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                }
-            }
-            Kernel::Merge => {
-                // Prefer the first input when both tick in the same cycle.
-                let a = inputs[0];
-                let b = inputs[1];
-                if ticked(a, &self.edges) {
-                    if let Some(v) = &self.edges[a].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                } else if ticked(b, &self.edges) {
-                    if let Some(v) = &self.edges[b].value {
-                        emits.push((outputs[0], v.clone()));
-                    }
-                }
-            }
             Kernel::Print { name } => {
                 if let Some(v) = &self.edges[inputs[0]].value {
                     let obj = v.to_py(py);
                     let s: String = obj.bind(py).str()?.extract()?;
                     println!("{} {} {}", format_time(now), name, s);
-                }
-            }
-            Kernel::GraphOutput { name } => {
-                if let Some(v) = &self.edges[inputs[0]].value {
-                    let obj = v.to_py(py);
-                    self.outputs.get_mut(name).unwrap().push((now, obj));
                 }
             }
             Kernel::Python { func, .. } => {
@@ -1115,8 +1144,488 @@ impl Engine {
                     futures.push((edge, now + delay, val));
                 }
             }
+            _ => unreachable!("non-py kernels are handled by run_node_native"),
         }
         Ok((emits, futures))
+    }
+
+    /// GIL-free execution of a native kernel (everything but Python/Print).
+    /// Returns `Err(message)` for unsupported kernels so the native executor can
+    /// enforce a native-only graph. `GraphOutput` stores the typed value.
+    fn run_node_native(
+        &mut self,
+        nid: usize,
+        now: i64,
+        cyc: i64,
+    ) -> Result<(Vec<(usize, Value)>, Vec<(usize, i64, Value)>), String> {
+        let inputs = self.nodes[nid].inputs.clone();
+        let outputs = self.nodes[nid].outputs.clone();
+        let ticked = |e: usize, edges: &Vec<EdgeState>| edges[e].last_tick == Some(cyc);
+        let mut emits: Vec<(usize, Value)> = Vec::new();
+        let mut futures: Vec<(usize, i64, Value)> = Vec::new();
+
+        match &self.nodes[nid].kernel {
+            Kernel::Const { value } => {
+                emits.push((outputs[0], value.clone()));
+            }
+            Kernel::Timer { interval, value } => {
+                emits.push((outputs[0], value.clone()));
+                futures.push((inputs[0], now + interval, Value::Bool(true)));
+            }
+            Kernel::Delay { delta } => {
+                let (x, alarm) = (inputs[0], inputs[1]);
+                if ticked(x, &self.edges) {
+                    if let Some(v) = &self.edges[x].value {
+                        futures.push((alarm, now + delta, v.clone()));
+                    }
+                }
+                if ticked(alarm, &self.edges) {
+                    if let Some(v) = &self.edges[alarm].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                }
+            }
+            Kernel::Count => {
+                self.counters[nid] += 1;
+                emits.push((outputs[0], Value::Int(self.counters[nid])));
+            }
+            Kernel::FirstN { n } => {
+                if self.counters[nid] < *n {
+                    self.counters[nid] += 1;
+                    if let Some(v) = &self.edges[inputs[0]].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                }
+            }
+            Kernel::BinOp { op } => {
+                let a = self.edges[inputs[0]].value.clone();
+                let b = self.edges[inputs[1]].value.clone();
+                if let (Some(a), Some(b)) = (a, b) {
+                    match apply_binop(*op, &a, &b) {
+                        Some(v) => emits.push((outputs[0], v)),
+                        None => {
+                            let sym = &self.nodes[nid].name;
+                            return Err(format!(
+                                "rcsp: operator '{sym}' needs numeric time-series values; \
+                                 do the operation inside a @node body or with rcsp.apply()"
+                            ));
+                        }
+                    }
+                }
+            }
+            Kernel::Filter => {
+                let (flag, x) = (inputs[0], inputs[1]);
+                let pass = self.edges[flag].value.as_ref().map(|v| v.is_truthy()).unwrap_or(false);
+                if ticked(x, &self.edges) && pass {
+                    if let Some(v) = &self.edges[x].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                }
+            }
+            Kernel::Sample => {
+                let (trigger, x) = (inputs[0], inputs[1]);
+                if ticked(trigger, &self.edges) {
+                    if let Some(v) = &self.edges[x].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                }
+            }
+            Kernel::Merge => {
+                let (a, b) = (inputs[0], inputs[1]);
+                if ticked(a, &self.edges) {
+                    if let Some(v) = &self.edges[a].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                } else if ticked(b, &self.edges) {
+                    if let Some(v) = &self.edges[b].value {
+                        emits.push((outputs[0], v.clone()));
+                    }
+                }
+            }
+            Kernel::GraphOutput { name } => {
+                if let Some(v) = &self.edges[inputs[0]].value {
+                    self.outputs.get_mut(name).unwrap().push((now, v.clone()));
+                }
+            }
+            Kernel::Print { .. } => {
+                return Err("native realtime does not support print(); use graph outputs".into());
+            }
+            Kernel::Python { .. } => {
+                return Err(
+                    "native realtime requires a native-only graph, but found a @node \
+                     (Python) on the path; use realtime=True for graphs with @node computations"
+                        .into(),
+                );
+            }
+        }
+        Ok((emits, futures))
+    }
+}
+
+// ===========================================================================
+// Native GIL-free hot path (see docs/REALTIME.md).
+//
+// PyO3's `allow_threads` requires the closure be GIL-free (`Ungil`), so the
+// native executor runs over a compiled graph of `NV` (a Python-free, Copy value
+// type) — never touching `Value`/`Py`. A native-only graph is compiled once,
+// then the whole discrete-event loop runs in Rust with the GIL released,
+// draining a lock-free input ring and spinning for the lowest latency.
+// ===========================================================================
+
+use crossbeam_queue::ArrayQueue;
+use std::sync::Arc;
+
+#[derive(Clone, Copy)]
+enum NV {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
+impl NV {
+    fn from_value(v: &Value) -> Option<NV> {
+        match v {
+            Value::Int(i) => Some(NV::Int(*i)),
+            Value::Float(f) => Some(NV::Float(*f)),
+            Value::Bool(b) => Some(NV::Bool(*b)),
+            _ => None,
+        }
+    }
+    fn from_py(obj: &Bound<'_, PyAny>) -> Option<NV> {
+        if let Ok(b) = obj.downcast::<PyBool>() {
+            return Some(NV::Bool(b.is_true()));
+        }
+        if let Ok(i) = obj.extract::<i64>() {
+            return Some(NV::Int(i));
+        }
+        if let Ok(f) = obj.extract::<f64>() {
+            return Some(NV::Float(f));
+        }
+        None
+    }
+    fn to_py(self, py: Python<'_>) -> PyObject {
+        match self {
+            NV::Int(i) => i.into_py(py),
+            NV::Float(f) => f.into_py(py),
+            NV::Bool(b) => b.into_py(py),
+        }
+    }
+    fn as_f64(self) -> f64 {
+        match self {
+            NV::Int(i) => i as f64,
+            NV::Float(f) => f,
+            NV::Bool(b) => if b { 1.0 } else { 0.0 },
+        }
+    }
+    fn is_truthy(self) -> bool {
+        match self {
+            NV::Int(i) => i != 0,
+            NV::Float(f) => f != 0.0,
+            NV::Bool(b) => b,
+        }
+    }
+}
+
+fn apply_binop_nv(op: BinOp, a: NV, b: NV) -> NV {
+    match op {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+            if let (NV::Int(x), NV::Int(y)) = (a, b) {
+                return match op {
+                    BinOp::Add => NV::Int(x + y),
+                    BinOp::Sub => NV::Int(x - y),
+                    BinOp::Mul => NV::Int(x * y),
+                    BinOp::Div => NV::Float(x as f64 / y as f64),
+                    _ => unreachable!(),
+                };
+            }
+            let (x, y) = (a.as_f64(), b.as_f64());
+            match op {
+                BinOp::Add => NV::Float(x + y),
+                BinOp::Sub => NV::Float(x - y),
+                BinOp::Mul => NV::Float(x * y),
+                BinOp::Div => NV::Float(x / y),
+                _ => unreachable!(),
+            }
+        }
+        _ => {
+            let (x, y) = (a.as_f64(), b.as_f64());
+            NV::Bool(match op {
+                BinOp::Gt => x > y,
+                BinOp::Lt => x < y,
+                BinOp::Ge => x >= y,
+                BinOp::Le => x <= y,
+                BinOp::Eq => x == y,
+                BinOp::Ne => x != y,
+                _ => unreachable!(),
+            })
+        }
+    }
+}
+
+enum NKernel {
+    Const(NV),
+    Timer { interval: i64, value: NV },
+    Delay { delta: i64 },
+    Count,
+    FirstN(i64),
+    BinOp(BinOp),
+    Filter,
+    Sample,
+    Merge,
+    GraphOutput(usize), // index into out_names
+}
+
+struct NNode {
+    kind: NKernel,
+    inputs: Vec<usize>,
+    outputs: Vec<usize>,
+    rank: i64,
+}
+
+/// A compiled native-only graph. Contains no Python — safe to run GIL-free.
+struct NativeGraph {
+    nodes: Vec<NNode>,
+    consumers: Vec<Vec<usize>>, // edge -> consumer nodes
+    values: Vec<Option<NV>>,
+    last_tick: Vec<i64>, // cycle id the edge last ticked (-1 = never)
+    counters: Vec<i64>,
+    out_names: Vec<String>,
+    out_rows: Vec<Vec<(i64, NV)>>,
+    cycle: i64,
+}
+
+/// A lock-free input ring for the native path, shared with a `NativeRing`
+/// Python handle. Producers push `(edge, value)`; the engine drains GIL-free.
+#[pyclass]
+pub struct NativeRing {
+    ring: Arc<ArrayQueue<(usize, NV)>>,
+}
+
+#[pymethods]
+impl NativeRing {
+    /// Push a typed value onto `edge`. Returns False if the ring is full or the
+    /// value isn't numeric/bool.
+    fn push(&self, edge: usize, value: Bound<'_, PyAny>) -> bool {
+        match NV::from_py(&value) {
+            Some(nv) => self.ring.push((edge, nv)).is_ok(),
+            None => false,
+        }
+    }
+}
+
+/// One native cycle at `now`/`cyc`: drain injections, fire nodes in rank order.
+fn native_process_cycle(
+    g: &mut NativeGraph,
+    now: i64,
+    end_ns: i64,
+    timed: &mut BinaryHeap<Reverse<(i64, u64)>>,
+    payload: &mut HashMap<u64, (usize, NV, bool)>, // (edge, value, is_node)
+    seq: &mut u64,
+) {
+    g.cycle += 1;
+    let cyc = g.cycle;
+    let mut cycle: BinaryHeap<Reverse<(i64, usize)>> = BinaryHeap::new();
+    let mut queued: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut ran: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    let mut push_sched = |timed: &mut BinaryHeap<Reverse<(i64, u64)>>,
+                          payload: &mut HashMap<u64, (usize, NV, bool)>,
+                          seq: &mut u64,
+                          t: i64,
+                          edge: usize,
+                          v: NV| {
+        *seq += 1;
+        payload.insert(*seq, (edge, v, false));
+        timed.push(Reverse((t, *seq)));
+    };
+
+    while let Some(Reverse((tt, _))) = timed.peek().copied() {
+        if tt != now {
+            break;
+        }
+        let Reverse((_, s)) = timed.pop().unwrap();
+        let (edge, v, _is_node) = payload.remove(&s).unwrap();
+        g.values[edge] = Some(v);
+        g.last_tick[edge] = cyc;
+        for &c in &g.consumers[edge] {
+            if queued.insert(c) {
+                cycle.push(Reverse((g.nodes[c].rank, c)));
+            }
+        }
+    }
+
+    while let Some(Reverse((_, nid))) = cycle.pop() {
+        if !ran.insert(nid) {
+            continue;
+        }
+        // Run the native node → emits (edge,value) now, futures (edge,time,value).
+        let mut emits: Vec<(usize, NV)> = Vec::new();
+        let inputs = &g.nodes[nid].inputs;
+        let outputs = &g.nodes[nid].outputs;
+        let ticked = |e: usize| g.last_tick[e] == cyc;
+        match &g.nodes[nid].kind {
+            NKernel::Const(v) => emits.push((outputs[0], *v)),
+            NKernel::Timer { interval, value } => {
+                emits.push((outputs[0], *value));
+                let t = now + interval;
+                if t <= end_ns {
+                    push_sched(timed, payload, seq, t, inputs[0], NV::Bool(true));
+                }
+            }
+            NKernel::Delay { delta } => {
+                let (x, alarm) = (inputs[0], inputs[1]);
+                if ticked(x) {
+                    if let Some(v) = g.values[x] {
+                        let t = now + delta;
+                        if t <= end_ns {
+                            push_sched(timed, payload, seq, t, alarm, v);
+                        }
+                    }
+                }
+                if ticked(alarm) {
+                    if let Some(v) = g.values[alarm] {
+                        emits.push((outputs[0], v));
+                    }
+                }
+            }
+            NKernel::Count => {
+                g.counters[nid] += 1;
+                emits.push((outputs[0], NV::Int(g.counters[nid])));
+            }
+            NKernel::FirstN(n) => {
+                if g.counters[nid] < *n {
+                    g.counters[nid] += 1;
+                    if let Some(v) = g.values[inputs[0]] {
+                        emits.push((outputs[0], v));
+                    }
+                }
+            }
+            NKernel::BinOp(op) => {
+                if let (Some(a), Some(b)) = (g.values[inputs[0]], g.values[inputs[1]]) {
+                    emits.push((outputs[0], apply_binop_nv(*op, a, b)));
+                }
+            }
+            NKernel::Filter => {
+                let (flag, x) = (inputs[0], inputs[1]);
+                let pass = g.values[flag].map(|v| v.is_truthy()).unwrap_or(false);
+                if ticked(x) && pass {
+                    if let Some(v) = g.values[x] {
+                        emits.push((outputs[0], v));
+                    }
+                }
+            }
+            NKernel::Sample => {
+                let (trigger, x) = (inputs[0], inputs[1]);
+                if ticked(trigger) {
+                    if let Some(v) = g.values[x] {
+                        emits.push((outputs[0], v));
+                    }
+                }
+            }
+            NKernel::Merge => {
+                let (a, b) = (inputs[0], inputs[1]);
+                if ticked(a) {
+                    if let Some(v) = g.values[a] {
+                        emits.push((outputs[0], v));
+                    }
+                } else if ticked(b) {
+                    if let Some(v) = g.values[b] {
+                        emits.push((outputs[0], v));
+                    }
+                }
+            }
+            NKernel::GraphOutput(idx) => {
+                if let Some(v) = g.values[inputs[0]] {
+                    g.out_rows[*idx].push((now, v));
+                }
+            }
+        }
+        for (edge, val) in emits {
+            g.values[edge] = Some(val);
+            g.last_tick[edge] = cyc;
+            for &c in &g.consumers[edge] {
+                if !ran.contains(&c) && queued.insert(c) {
+                    cycle.push(Reverse((g.nodes[c].rank, c)));
+                }
+            }
+        }
+    }
+}
+
+/// The GIL-free native realtime loop: seed sources, then spin over the wall
+/// clock draining the input ring and firing due events.
+fn native_run_loop(
+    g: &mut NativeGraph,
+    ring: Option<Arc<ArrayQueue<(usize, NV)>>>,
+    start_ns: i64,
+    end_ns: i64,
+    realtime: bool,
+) {
+    let mut timed: BinaryHeap<Reverse<(i64, u64)>> = BinaryHeap::new();
+    let mut payload: HashMap<u64, (usize, NV, bool)> = HashMap::new();
+    let mut seq: u64 = 0;
+
+    // Seed sources.
+    for node in g.nodes.iter() {
+        match &node.kind {
+            NKernel::Const(_) => {
+                seq += 1;
+                payload.insert(seq, (node.inputs[0], NV::Bool(true), false));
+                timed.push(Reverse((start_ns, seq)));
+            }
+            NKernel::Timer { interval, .. } => {
+                let t = start_ns + interval;
+                if t <= end_ns {
+                    seq += 1;
+                    payload.insert(seq, (node.inputs[0], NV::Bool(true), false));
+                    timed.push(Reverse((t, seq)));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !realtime {
+        // Simulation: drain the schedule as fast as possible.
+        while let Some(Reverse((t, _))) = timed.peek().copied() {
+            if t > end_ns {
+                break;
+            }
+            native_process_cycle(g, t, end_ns, &mut timed, &mut payload, &mut seq);
+        }
+        return;
+    }
+
+    // Realtime: spin over the wall clock (GIL-free), draining the input ring.
+    let wall = std::time::Instant::now();
+    let duration_ns = (end_ns - start_ns).max(0) as u128;
+    let mut last_push: i64 = start_ns - 1;
+    loop {
+        let elapsed = wall.elapsed().as_nanos();
+        let now_ns = start_ns + elapsed.min(duration_ns) as i64;
+
+        if let Some(r) = &ring {
+            while let Some((edge, nv)) = r.pop() {
+                let t = now_ns.max(last_push + 1);
+                last_push = t;
+                seq += 1;
+                payload.insert(seq, (edge, nv, false));
+                timed.push(Reverse((t, seq)));
+            }
+        }
+
+        let fire_until = now_ns.max(last_push);
+        while let Some(Reverse((t, _))) = timed.peek().copied() {
+            if t > fire_until || t > end_ns {
+                break;
+            }
+            native_process_cycle(g, t, end_ns, &mut timed, &mut payload, &mut seq);
+        }
+
+        if elapsed >= duration_ns {
+            break;
+        }
+        std::hint::spin_loop();
     }
 }
 
@@ -1166,5 +1675,6 @@ fn format_time(ns: i64) -> String {
 #[pymodule]
 fn _rcsp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Engine>()?;
+    m.add_class::<NativeRing>()?;
     Ok(())
 }

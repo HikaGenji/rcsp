@@ -30,8 +30,12 @@ class Builder:
         # Wakeup signal so realtime push producers can wake the engine loop
         # immediately (event-driven), rather than it polling on a fixed sleep.
         import queue
+        import threading
 
         self.wakeup = queue.Queue()
+        # Native GIL-free path: a shared lock-free input ring + start signal.
+        self.native_ring = None
+        self.native_started = threading.Event()
 
     def new_edge(self):
         return Edge(self, self.engine.new_edge())

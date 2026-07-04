@@ -84,12 +84,25 @@ i.e. **~0.5 µs median**, ~300× below the Python event-driven path, confirming 
 design's envelope. The lock-free ring primitive (`crossbeam-queue`) and this
 benchmark ship today.
 
-### Integration (follow-up)
+### The native executor (shipped)
 
-Full wiring — `run(..., realtime="native")` selecting the native executor,
-`process_cycle_native`, native input/output rings exposed to Rust producers, and
-the native-only guard — is staged as a follow-up PR. The design, the lock-free
-primitive, and the measured envelope above are in place to build on.
+`rcsp.run(graph, ..., realtime="native")` runs the whole engine loop GIL-free:
+
+- The graph is **compiled** to a native form — a Python-free value type (`NV`)
+  and native nodes — after a **native-only guard** rejects any `@node`/`print`
+  (raising a clear error pointing you back to `realtime=True`).
+- The entire discrete-event loop then runs inside `py.allow_threads` (no GIL, no
+  lock), spinning over the wall clock and draining a lock-free input ring
+  (`rcsp.NativePushAdapter` → `crossbeam-queue`). Typed outputs are converted to
+  Python once, after the run.
+- It is verified to produce **identical results** to the normal engine on the
+  same native graph (`tests/test_native_executor.py`).
+
+Supported native kernels: `const`, `timer`, `delay`, `count`, `firstN`, binops
+(`+ - * /`, comparisons), `filter`, `sample`, `merge`, and graph outputs — i.e.
+the whole baselib except Python `@node`s and `print`. A Python producer can feed
+`NativePushAdapter.push_tick` (bounded by GIL-acquire per push); a native
+producer writes the ring directly for end-to-end sub-µs.
 
 ## 4. Is the producer fast enough?
 
@@ -117,4 +130,4 @@ just a native engine.
 |---|---|
 | Backtest / batch | simulation (`realtime=False`) — as fast as possible |
 | Live, ~tens of µs, arbitrary Python nodes | `realtime=True` (event-driven; default) |
-| Sub-µs, deterministic, native compute only | native hot path (design above; primitive shipped) |
+| Sub-µs, deterministic, native compute only | `realtime="native"` (native-only graph, GIL-free) |

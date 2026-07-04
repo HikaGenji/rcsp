@@ -51,3 +51,31 @@ class GenericPushAdapter:
 def schedule_on_engine_stop(callback):
     """Register ``callback`` to run once, after the engine finishes."""
     current_builder().stop_callbacks.append(callback)
+
+
+class NativePushAdapter:
+    """Push typed values into a **native** (GIL-free) graph via a lock-free ring.
+
+    Use with ``rcsp.run(..., realtime="native")`` and a native-only graph. The
+    engine drains the ring with the GIL released; ``push_tick`` accepts numeric
+    or bool values (the ring holds a Python-free value type). For end-to-end
+    sub-µs, the producer should itself be native — a Python producer is still
+    bounded by GIL-acquire per push. See docs/REALTIME.md.
+    """
+
+    def __init__(self, typ=None):
+        self._builder = current_builder()
+        self._edge = self._builder.engine.new_edge()
+        if self._builder.native_ring is None:
+            self._builder.native_ring = self._builder.engine.enable_native_ring(65536)
+        self._ring = self._builder.native_ring
+
+    def out(self):
+        return Edge(self._builder, self._edge)
+
+    def push_tick(self, value):
+        """Push a numeric/bool value; returns False if the ring is full."""
+        return self._ring.push(self._edge, value)
+
+    def wait_for_start(self, timeout=None):
+        return self._builder.native_started.wait(timeout)

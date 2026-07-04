@@ -23,7 +23,7 @@ Public API mirrors the subset of ``csp`` most graphs use::
 
 from ._types import Outputs, TsType, ts
 from ._graph import Edge, graph, feedback, Feedback
-from ._adapters import GenericPushAdapter, schedule_on_engine_stop
+from ._adapters import GenericPushAdapter, NativePushAdapter, schedule_on_engine_stop
 from ._node import (
     node,
     ticked,
@@ -85,6 +85,7 @@ __all__ = [
     "feedback",
     "Feedback",
     "GenericPushAdapter",
+    "NativePushAdapter",
     "schedule_on_engine_stop",
     "ticked",
     "valid",

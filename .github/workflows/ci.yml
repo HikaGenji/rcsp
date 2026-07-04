@@ -63,6 +63,7 @@ jobs:
           python examples/e5_dataframes.py
           python examples/e6_persist_all.py
           python examples/e7_native_realtime.py
+          python examples/e8_multi_symbol_vwap.py --shards 2
           python examples/csp_ports/01_basics/e2_ticking.py
           python examples/csp_ports/01_basics/e3_show_graph.py
           python examples/csp_ports/01_basics/e4_trade_pnl.py

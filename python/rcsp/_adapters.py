@@ -25,6 +25,7 @@ class GenericPushAdapter:
     def __init__(self, typ=None):
         self._builder = current_builder()
         self._queue = queue.Queue()
+        self._wakeup = self._builder.wakeup   # wakes the engine loop on push
         self._started = threading.Event()
         self._edge = self._builder.engine.new_edge()
         self._builder.engine.register_push_adapter(self._edge, self._queue)
@@ -37,6 +38,7 @@ class GenericPushAdapter:
     def push_tick(self, value):
         """Push a value into the graph (thread-safe)."""
         self._queue.put(value)
+        self._wakeup.put(None)   # wake the realtime loop immediately
 
     def wait_for_start(self, timeout=None):
         """Block until the engine has started (or ``timeout`` seconds pass)."""

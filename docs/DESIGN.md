@@ -136,6 +136,14 @@ drop-in replacement. Notable differences:
   output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one
   source → per-key streams) build on `curve` and engine-stop callbacks. NumPy
   and Polars are optional (`pip install rcsp[data]`).
+* The realtime driver is **event-driven**: it blocks only until the next event's
+  deadline and a `push_tick` wakes it immediately via a shared wakeup queue
+  (`queue.Queue.get` releases the GIL and returns on the producer's `put`). This
+  removes the old fixed 1ms polling floor — timers fire on-time and pushed inputs
+  react in ~tens of µs. The floor below that is the GIL (Python nodes on the hot
+  path); a native GIL-free hot path (lock-free ring + native kernels, no Python)
+  reaches sub-µs — see [`REALTIME.md`](REALTIME.md), with a measured primitive via
+  `rcsp.native_latency_benchmark`.
 * `rcsp.run(persist="audit.jsonl"|".csv")` auto-persists **every** node's output
   to a live audit stream (opt-in; off by default). After the graph is built it
   enumerates producer edges via `Engine.topology()` and attaches a recording sink

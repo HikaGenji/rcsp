@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }
+crossbeam-queue = "0.3"   # lock-free ring buffer for the native GIL-free hot path
 
 [profile.release]
 opt-level = 3

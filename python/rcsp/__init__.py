@@ -65,6 +65,7 @@ from ._io import (
     CsvAdapterManager,
 )
 from ._kafka import KafkaAdapterManager, InMemoryKafka
+from ._bench import native_latency_benchmark
 from . import stats
 from . import _profiler as profiler
 
@@ -125,6 +126,7 @@ __all__ = [
     "CsvAdapterManager",
     "KafkaAdapterManager",
     "InMemoryKafka",
+    "native_latency_benchmark",
     "stats",
     "profiler",
 ]

@@ -31,6 +31,9 @@ def run(graph, *args, starttime, endtime=None, realtime=False, persist=None,
     try:
         graph(*args, **kwargs)
 
+        native = realtime == "native"
+        if native and persist:
+            raise NotImplementedError("persist=... is not supported with realtime='native'")
         if persist:
             if builder.dynamics:
                 raise NotImplementedError("persist=... is not supported with dynamic graphs")
@@ -47,7 +50,7 @@ def run(graph, *args, starttime, endtime=None, realtime=False, persist=None,
             end_ns = _dt_to_ns(endtime)
 
         profiler = _current_profiler()
-        if realtime:
+        if realtime is True:
             # Event-driven realtime: push producers wake the loop immediately;
             # otherwise it blocks only until the next event's deadline.
             builder.engine.set_realtime_options(builder.wakeup, int(realtime_max_idle * 1e9))
@@ -55,13 +58,18 @@ def run(graph, *args, starttime, endtime=None, realtime=False, persist=None,
         # engine-stop callbacks afterwards (e.g. to join driver threads).
         for adapter in builder.push_adapters:
             adapter._signal_start()
+        builder.native_started.set()
         try:
-            if builder.dynamics:
+            if native:
+                if builder.dynamics:
+                    raise NotImplementedError("realtime='native' does not support dynamic graphs")
+                raw = builder.engine.run_native(start_ns, end_ns, True)
+            elif builder.dynamics:
                 if realtime:
                     raise NotImplementedError("dynamic graphs support simulation only")
                 raw = _run_dynamic(builder, start_ns, end_ns, profiler)
             else:
-                raw = builder.engine.run(start_ns, end_ns, realtime, profiler is not None)
+                raw = builder.engine.run(start_ns, end_ns, bool(realtime), profiler is not None)
                 if profiler is not None:
                     profiler._ingest(builder.engine.profiling_report())
         finally:

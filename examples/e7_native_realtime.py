@@ -36,6 +36,18 @@ class Producer(threading.Thread):
             self._adapter.push_tick(time.perf_counter())
 
 
+class _NativeProducer(threading.Thread):
+    def __init__(self, adapter):
+        super().__init__(daemon=True)
+        self._adapter = adapter
+
+    def run(self):
+        self._adapter.wait_for_start(timeout=2)
+        for i in range(1, 9):
+            time.sleep(0.02)
+            self._adapter.push_tick(i)
+
+
 @rcsp.graph
 def my_graph():
     adapter = rcsp.GenericPushAdapter(object)
@@ -60,6 +72,20 @@ def main():
     print("\nnative GIL-free hot path (no Python on the hot path):")
     print(f"  ring→compute  median={ns['median_ns']/1e3:.3f}µs  "
           f"p90={ns['p90_ns']/1e3:.3f}µs  min={ns['min_ns']/1e3:.3f}µs")
+
+    # 2b) The native executor as a real run mode: a native-only graph run with
+    #     the whole engine loop GIL-free. Output matches the normal engine.
+    @rcsp.graph
+    def native_graph():
+        a = rcsp.NativePushAdapter(int)
+        x = a.out()
+        rcsp.add_graph_output("scaled", x * 3)
+        _NativeProducer(a).start()
+
+    nout = rcsp.run(native_graph, starttime=datetime.now(timezone.utc),
+                    endtime=timedelta(seconds=0.3), realtime="native")
+    print("\nrealtime='native' run mode (GIL-free engine, native-only graph):")
+    print(f"  pushed 1..8 → scaled x3 = {[v for _, v in nout['scaled']]}")
 
     # 3) Is the PRODUCER fast enough? Reaction latency can't tell you (it's
     #    stamped at push time), so measure the producer side directly.

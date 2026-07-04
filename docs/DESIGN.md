@@ -142,8 +142,10 @@ drop-in replacement. Notable differences:
   removes the old fixed 1ms polling floor — timers fire on-time and pushed inputs
   react in ~tens of µs. The floor below that is the GIL (Python nodes on the hot
   path); a native GIL-free hot path (lock-free ring + native kernels, no Python)
-  reaches sub-µs — see [`REALTIME.md`](REALTIME.md), with a measured primitive via
-  `rcsp.native_latency_benchmark`.
+  reaches sub-µs. `rcsp.run(..., realtime="native")` ships this: a native-only
+  graph is compiled to a Python-free form and the whole loop runs inside
+  `py.allow_threads` (no GIL, no lock) over a lock-free ring, verified to match
+  the normal engine. See [`REALTIME.md`](REALTIME.md).
 * `rcsp.run(persist="audit.jsonl"|".csv")` auto-persists **every** node's output
   to a live audit stream (opt-in; off by default). After the graph is built it
   enumerates producer edges via `Engine.topology()` and attaches a recording sink

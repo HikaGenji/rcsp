@@ -102,9 +102,9 @@ Now available in rcsp:
   new key at runtime (simulation), via the engine's stepped-execution API.
 - Kafka: `rcsp.KafkaAdapterManager` `subscribe`/`publish` (via `kafka-python`),
   with an in-process `rcsp.InMemoryKafka` broker double for tests/demos.
-- Realtime latency: event-driven reaction (~tens of µs), a sub-µs native
-  GIL-free hot path, and `rcsp.producer_benchmark` to check whether a Python
-  producer is fast enough — [`docs/REALTIME.md`](REALTIME.md),
+- Realtime latency: event-driven reaction (~tens of µs), a `realtime="native"`
+  GIL-free run mode (sub-µs; native-only graphs), and `rcsp.producer_benchmark`
+  to check whether a Python producer is fast enough — [`docs/REALTIME.md`](REALTIME.md),
   [`examples/e7_native_realtime.py`](../examples/e7_native_realtime.py).
 - Realtime audit: `rcsp.run(persist="audit.jsonl")` streams every node's output
   to a live, tailable file (opt-in). See [`examples/e6_persist_all.py`](../examples/e6_persist_all.py).

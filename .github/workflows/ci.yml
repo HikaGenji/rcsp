@@ -76,3 +76,7 @@ jobs:
           python examples/csp_ports/99_developer_tools/e1_profiling.py
           python examples/csp_ports/06_advanced/e1_dynamic.py
           python examples/csp_ports/03_using_adapters/kafka/e1_kafka.py
+          python examples/csp_ports/07_end_to_end/wikimedia.py --duration 1
+          python examples/csp_ports/07_end_to_end/earthquake.py --duration 1
+          python examples/csp_ports/07_end_to_end/mta.py --duration 1
+          python examples/csp_ports/07_end_to_end/seismic.py

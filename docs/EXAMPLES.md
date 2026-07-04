@@ -63,9 +63,17 @@ needs an unimplemented subsystem.
 
 ## 07_end_to_end
 
-| CSP example | rcsp | Notes |
+CSP's originals are live-data Jupyter notebooks (maps/plots). rcsp's ports are
+runnable **scripts** performing the same streaming computation; each runs offline
+on synthetic/replayed data by default and takes `--live` for the real feed where
+the network is open. See [`examples/csp_ports/07_end_to_end/README.md`](../examples/csp_ports/07_end_to_end/README.md).
+
+| CSP example | rcsp | Where |
 |---|---|---|
-| `mta.ipynb`, `seismic_waveform.ipynb`, `wikimedia.ipynb`, `earthquake.ipynb` | ⛔ | live-data notebooks needing network adapters + plotting |
+| `wikimedia.ipynb` — live edit stream | ✅ | [`07_end_to_end/wikimedia.py`](../examples/csp_ports/07_end_to_end/wikimedia.py) (offline synthetic; `--live` SSE) |
+| `earthquake.ipynb` — USGS quakes | ✅ | [`07_end_to_end/earthquake.py`](../examples/csp_ports/07_end_to_end/earthquake.py) (offline replay; `--live` USGS) |
+| `mta.ipynb` — NYC transit | ✅ | [`07_end_to_end/mta.py`](../examples/csp_ports/07_end_to_end/mta.py) (offline synthetic; `--live` GTFS stub) |
+| `seismic_waveform.ipynb` — STA/LTA trigger | ✅ | [`07_end_to_end/seismic.py`](../examples/csp_ports/07_end_to_end/seismic.py) (streaming result **==** NumPy batch) |
 
 ## 98_just_for_fun
 
@@ -81,9 +89,9 @@ needs an unimplemented subsystem.
 
 ## Summary
 
-The remaining ⛔ entries are honest gaps: they require a websocket server,
-pandas interop, or a C++ toolchain. See [`DESIGN.md`](DESIGN.md) for the scope
-rationale.
+The remaining ⛔ entries are honest gaps: they require the ExprTk adapter, a
+websocket server, or a C++ toolchain (rcsp's engine is Rust). Every end-to-end
+demo is now ported. See [`DESIGN.md`](DESIGN.md) for the scope rationale.
 
 Now available in rcsp:
 

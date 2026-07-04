@@ -19,6 +19,10 @@ organized under the same category folders, rewritten against rcsp's API.
 | `04_writing_adapters/e1_generic_push_adapter.py` | `04_writing_adapters/e1_generic_push_adapter.py` | realtime `GenericPushAdapter`, threads |
 | `04_writing_adapters/e2_pullinput.py` | `04_writing_adapters/e2_pullinput.py` | pull/replay via `curve` |
 | `98_just_for_fun/e1_csp_nand_computer.py` | `98_just_for_fun/e1_csp_nand_computer.py` | one NAND node → a 16-bit adder |
+| `07_end_to_end/wikimedia.py` | `07_end_to_end/wikimedia.ipynb` | live edit stream → rate, bot ratio, top wiki (push adapter + `stats`) |
+| `07_end_to_end/earthquake.py` | `07_end_to_end/earthquake.ipynb` | quake replay → count, rolling max mag, significance filter (`curve` + `stats`) |
+| `07_end_to_end/mta.py` | `07_end_to_end/mta.ipynb` | subway arrivals → per-route mean delay, on-time ratio (stateful + `stats.mean`) |
+| `07_end_to_end/seismic.py` | `07_end_to_end/seismic_waveform.ipynb` | STA/LTA trigger, streaming result **==** NumPy batch |
 
 For the full mapping of *every* CSP example (including the ones that need
 subsystems rcsp doesn't implement), see [`../../docs/EXAMPLES.md`](../../docs/EXAMPLES.md).

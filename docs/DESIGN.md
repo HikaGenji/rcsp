@@ -136,6 +136,17 @@ drop-in replacement. Notable differences:
   output) and adapter managers (`ReplayAdapterManager`/`CsvAdapterManager`, one
   source → per-key streams) build on `curve` and engine-stop callbacks. NumPy
   and Polars are optional (`pip install rcsp[data]`).
+* `rcsp.run(persist="audit.jsonl"|".csv")` auto-persists **every** node's output
+  to a live audit stream (opt-in; off by default). After the graph is built it
+  enumerates producer edges via `Engine.topology()` and attaches a recording sink
+  to each. Because the engine is single-threaded, the sinks run in-line as graph
+  nodes and only `queue.put((time, node, str(value)))`; a background writer thread
+  drains the queue and streams rows to disk, flushing each line so it's tailable.
+  The `queue.Queue` is the sole cross-thread boundary (inverted push-adapter
+  pattern) — no shared mutable graph state, no lock, and disk I/O never stalls a
+  cycle. Live streaming applies in realtime mode (the engine yields the GIL every
+  ~1ms); in fast simulation rows drain and flush at stop. Static graphs only;
+  Parquet is rejected (not row-streamable).
 * `rcsp.KafkaAdapterManager` streams from/to Kafka: `subscribe` runs a consumer
   thread that feeds a `GenericPushAdapter`, `publish` sends each tick via a
   producer. The client is `kafka-python` (optional, `rcsp[kafka]`); an in-process

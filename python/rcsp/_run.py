@@ -13,12 +13,15 @@ def add_graph_output(name, x):
     current_builder().engine.add_graph_output(name, x.id)
 
 
-def run(graph, *args, starttime, endtime=None, realtime=False, **kwargs):
+def run(graph, *args, starttime, endtime=None, realtime=False, persist=None, **kwargs):
     """Build ``graph`` and run the engine over ``[starttime, endtime]``.
 
     ``endtime`` may be an absolute :class:`~datetime.datetime` or a
     :class:`~datetime.timedelta` relative to ``starttime``. Returns a dict
     mapping each :func:`add_graph_output` name to a list of ``(datetime, value)``.
+
+    ``persist`` (opt-in, off by default): a ``.csv``/``.jsonl`` path to stream
+    every node's output to, live, as an audit log. See :mod:`rcsp._persist`.
     """
     from ._profiler import _current as _current_profiler
 
@@ -26,6 +29,13 @@ def run(graph, *args, starttime, endtime=None, realtime=False, **kwargs):
     token = _builder.set(builder)
     try:
         graph(*args, **kwargs)
+
+        if persist:
+            if builder.dynamics:
+                raise NotImplementedError("persist=... is not supported with dynamic graphs")
+            from ._persist import attach_persist
+
+            attach_persist(builder, persist)
 
         start_ns = _dt_to_ns(starttime)
         if endtime is None:

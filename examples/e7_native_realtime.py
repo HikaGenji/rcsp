@@ -61,6 +61,17 @@ def main():
     print(f"  ring→compute  median={ns['median_ns']/1e3:.3f}µs  "
           f"p90={ns['p90_ns']/1e3:.3f}µs  min={ns['min_ns']/1e3:.3f}µs")
 
+    # 3) Is the PRODUCER fast enough? Reaction latency can't tell you (it's
+    #    stamped at push time), so measure the producer side directly.
+    prod = rcsp.producer_benchmark(duration=0.3, target_rate=5000)
+    print("\npython producer capability (this machine):")
+    print(f"  max throughput   ~{prod['max_rate_per_s']/1e6:.2f} M ticks/s  "
+          f"(engine kept up: {prod['kept_up']})")
+    print(f"  pacing @5k/s     interval median={prod.get('pacing_median_us', 0):.1f}µs  "
+          f"p99={prod.get('pacing_p99_us', 0):.1f}µs")
+    print("  → a Python producer is fine below its max rate with ~100µs jitter;")
+    print("    for higher rates / deterministic pacing, use a native producer.")
+
 
 if __name__ == "__main__":
     main()

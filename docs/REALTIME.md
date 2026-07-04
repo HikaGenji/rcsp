@@ -91,6 +91,26 @@ Full wiring — `run(..., realtime="native")` selecting the native executor,
 the native-only guard — is staged as a follow-up PR. The design, the lock-free
 primitive, and the measured envelope above are in place to build on.
 
+## 4. Is the producer fast enough?
+
+Reaction latency (push→node) does **not** answer this: it is stamped at push
+time, so a slow producer's lateness happens *before* the measurement and is
+invisible. You have to measure the **producer** directly, which
+`rcsp.producer_benchmark(duration, target_rate=…)` does:
+
+- **throughput** — push in a tight loop and count ticks/s (and confirm the engine
+  drained them all). On a shared box this is ~10^5 ticks/s for one Python thread,
+  because each `push_tick` runs Python bytecode + `queue.put`s under the GIL.
+- **pacing jitter** — at a target rate, the actual inter-push interval vs the
+  intended one (e.g. ~200µs median but a fatter p99 under GIL/scheduling/GC).
+
+Compare those to your feed's required rate and jitter budget. A Python producer is
+fine below ~10^5 ticks/s with ~100µs jitter; above that, or for deterministic
+pacing, the producer must be **native** — the sub-µs native benchmark hits its
+numbers precisely because *both* producer and consumer are native (Rust thread →
+lock-free ring → Rust consumer). End-to-end sub-µs needs a native producer, not
+just a native engine.
+
 ## Choosing a mode
 
 | Need | Use |

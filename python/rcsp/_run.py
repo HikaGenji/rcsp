@@ -13,7 +13,8 @@ def add_graph_output(name, x):
     current_builder().engine.add_graph_output(name, x.id)
 
 
-def run(graph, *args, starttime, endtime=None, realtime=False, persist=None, **kwargs):
+def run(graph, *args, starttime, endtime=None, realtime=False, persist=None,
+        realtime_max_idle=0.001, **kwargs):
     """Build ``graph`` and run the engine over ``[starttime, endtime]``.
 
     ``endtime`` may be an absolute :class:`~datetime.datetime` or a
@@ -46,6 +47,10 @@ def run(graph, *args, starttime, endtime=None, realtime=False, persist=None, **k
             end_ns = _dt_to_ns(endtime)
 
         profiler = _current_profiler()
+        if realtime:
+            # Event-driven realtime: push producers wake the loop immediately;
+            # otherwise it blocks only until the next event's deadline.
+            builder.engine.set_realtime_options(builder.wakeup, int(realtime_max_idle * 1e9))
         # Let realtime push adapters begin producing, then run; always fire
         # engine-stop callbacks afterwards (e.g. to join driver threads).
         for adapter in builder.push_adapters:

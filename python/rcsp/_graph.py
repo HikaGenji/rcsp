@@ -27,6 +27,11 @@ class Builder:
         self.stop_callbacks = []
         # Registered dynamic-graph controllers (see rcsp.dynamic).
         self.dynamics = []
+        # Wakeup signal so realtime push producers can wake the engine loop
+        # immediately (event-driven), rather than it polling on a fixed sleep.
+        import queue
+
+        self.wakeup = queue.Queue()
 
     def new_edge(self):
         return Edge(self, self.engine.new_edge())

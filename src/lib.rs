@@ -156,6 +156,8 @@ pub struct Engine {
     counters: Vec<i64>,         // per-node scratch (Count/FirstN)
     outputs: HashMap<String, Vec<(i64, PyObject)>>,
     push_adapters: Vec<(usize, Py<PyAny>)>, // (edge, python queue) for realtime push
+    rt_wakeup: Option<Py<PyAny>>,           // queue.Queue tokened by push_tick to wake the realtime loop
+    rt_max_idle_ns: i64,                    // realtime: max time to block when idle
     cycle: i64,                             // monotonic engine-cycle counter
     profile: bool,                          // collect per-node timing this run
     prof_count: Vec<u64>,                   // per-node execution count
@@ -182,6 +184,8 @@ impl Engine {
             counters: Vec::new(),
             outputs: HashMap::new(),
             push_adapters: Vec::new(),
+            rt_wakeup: None,
+            rt_max_idle_ns: 1_000_000,
             cycle: 0,
             profile: false,
             prof_count: Vec::new(),
@@ -285,6 +289,76 @@ impl Engine {
     /// `queue.Queue`) are injected onto `edge` at wall-clock arrival time.
     fn register_push_adapter(&mut self, edge: usize, queue: Py<PyAny>) {
         self.push_adapters.push((edge, queue));
+    }
+
+    /// Configure the realtime loop: `wakeup` is a `queue.Queue` that producers
+    /// token on `push_tick` to wake the engine immediately; `max_idle_ns` caps
+    /// how long the loop blocks when nothing is scheduled.
+    #[pyo3(signature = (wakeup, max_idle_ns))]
+    fn set_realtime_options(&mut self, wakeup: Option<Py<PyAny>>, max_idle_ns: i64) {
+        self.rt_wakeup = wakeup;
+        self.rt_max_idle_ns = max_idle_ns.max(0);
+    }
+
+    /// Micro-benchmark of the native GIL-free hot path (see docs/REALTIME.md):
+    /// a Rust producer thread feeds timestamps through a lock-free ring buffer
+    /// to a **GIL-released** consumer that runs a native compute per item. This
+    /// is the latency envelope achievable with no Python on the hot path.
+    /// Returns a dict of latency percentiles in nanoseconds.
+    #[pyo3(signature = (iters = 2000))]
+    fn bench_native(&self, py: Python<'_>, iters: usize) -> PyResult<PyObject> {
+        use crossbeam_queue::ArrayQueue;
+        use std::sync::Arc;
+        use std::time::Instant;
+
+        let iters = iters.max(1);
+        let ring: Arc<ArrayQueue<u64>> = Arc::new(ArrayQueue::new(1024));
+        let base = Instant::now();
+
+        let prod_ring = ring.clone();
+        let producer = std::thread::spawn(move || {
+            for _ in 0..iters {
+                let t = base.elapsed().as_nanos() as u64;
+                while prod_ring.push(t).is_err() {
+                    std::hint::spin_loop();
+                }
+                std::thread::sleep(std::time::Duration::from_micros(5));
+            }
+        });
+
+        let mut lats: Vec<u64> = Vec::with_capacity(iters);
+        // The whole consumer loop runs with the GIL released — no Python, no
+        // lock — spinning on the lock-free ring and running a native binop.
+        py.allow_threads(|| {
+            let mut got = 0usize;
+            let mut acc = 0.0f64;
+            while got < iters {
+                match ring.pop() {
+                    Some(t_push) => {
+                        acc += (t_push as f64) * 2.0 + 1.0; // native compute on a typed value
+                        let now_ns = base.elapsed().as_nanos() as u64;
+                        lats.push(now_ns.saturating_sub(t_push));
+                        got += 1;
+                    }
+                    None => std::hint::spin_loop(),
+                }
+            }
+            std::hint::black_box(acc);
+        });
+        producer.join().ok();
+
+        lats.sort_unstable();
+        let n = lats.len();
+        let pct = |p: f64| lats[(((n as f64) * p) as usize).min(n - 1)];
+        let mean = lats.iter().sum::<u64>() as f64 / n as f64;
+        let dict = pyo3::types::PyDict::new_bound(py);
+        dict.set_item("iters", n)?;
+        dict.set_item("min_ns", lats[0])?;
+        dict.set_item("median_ns", pct(0.5))?;
+        dict.set_item("p90_ns", pct(0.9))?;
+        dict.set_item("max_ns", lats[n - 1])?;
+        dict.set_item("mean_ns", mean)?;
+        Ok(dict.into())
     }
 
     /// Allocate a fresh edge and return its id.
@@ -855,8 +929,36 @@ impl Engine {
             if elapsed >= duration_ns {
                 break;
             }
-            // Sleep briefly, releasing the GIL so pusher threads can enqueue.
-            py.allow_threads(|| std::thread::sleep(std::time::Duration::from_millis(1)));
+
+            // Event-driven wait: block only until the next scheduled event's
+            // deadline (or the run end), waking immediately when a producer
+            // signals the wakeup queue. This removes the fixed 1ms polling floor
+            // — timers fire on their exact deadline and pushed inputs are
+            // serviced in ~tens of µs — while keeping idle CPU near zero.
+            let deadline = timed
+                .peek()
+                .map(|Reverse((t, _))| *t)
+                .unwrap_or(end_ns)
+                .min(end_ns);
+            let wait_ns = (deadline - now_ns).clamp(0, self.rt_max_idle_ns);
+            if wait_ns == 0 {
+                continue;
+            }
+            match &self.rt_wakeup {
+                Some(wq) => {
+                    let timeout = wait_ns as f64 / 1e9;
+                    let wq = wq.bind(py);
+                    // queue.get releases the GIL while waiting and returns the
+                    // instant a producer puts a token; `queue.Empty` on timeout
+                    // is expected and ignored.
+                    let _ = wq.call_method1("get", (true, timeout));
+                    while wq.call_method0("get_nowait").is_ok() {}
+                }
+                None => {
+                    let d = std::time::Duration::from_nanos(wait_ns as u64);
+                    py.allow_threads(|| std::thread::sleep(d));
+                }
+            }
         }
         Ok(())
     }

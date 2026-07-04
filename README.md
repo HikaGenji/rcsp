@@ -37,6 +37,8 @@ of every CSP example ported into rcsp.
 - **Kafka adapters** — `rcsp.KafkaAdapterManager` subscribe/publish (with an
   in-memory broker double for tests)
 - discrete-event **simulation** and wall-clock **realtime** modes, one code path
+- **event-driven realtime** — reacts to pushed inputs in ~tens of µs (no fixed
+  poll); a native GIL-free hot path reaches sub-µs (see [`docs/REALTIME.md`](docs/REALTIME.md))
 
 Ported CSP examples live under [`examples/csp_ports/`](examples/csp_ports/),
 mirroring CSP's category layout (basics, feedback, adapters, the NAND-gate

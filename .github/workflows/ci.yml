@@ -62,6 +62,7 @@ jobs:
           python -c "import examples.e4_realtime as e; e.main(realtime=False)"
           python examples/e5_dataframes.py
           python examples/e6_persist_all.py
+          python examples/e7_native_realtime.py
           python examples/csp_ports/01_basics/e2_ticking.py
           python examples/csp_ports/01_basics/e3_show_graph.py
           python examples/csp_ports/01_basics/e4_trade_pnl.py
